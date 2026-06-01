@@ -1,0 +1,9 @@
+{
+  "gitlab_url": "https://gitlab.com",
+  "token": "your-gitlab-access-token",
+  "port": 8080,
+  "max_concurrent": 20,
+  "request_timeout": "30s",
+  "cache_enabled": true,
+  "cache_ttl": "5m"
+}
