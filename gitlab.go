@@ -1,0 +1,182 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+)
+
+const defaultPerPage = 100
+
+type GitLabClient struct {
+	baseURL string
+	token   string
+	client  *http.Client
+	cache   *Cache
+}
+
+func NewGitLabClient(cfg *Config, cache *Cache) *GitLabClient {
+	return &GitLabClient{
+		baseURL: strings.TrimSuffix(cfg.GitLabURL, "/") + "/api/v4",
+		token:   cfg.Token,
+		client: &http.Client{
+			Timeout: time.Duration(cfg.RequestTimeout),
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 20,
+				IdleConnTimeout:     90 * time.Second,
+			},
+		},
+		cache: cache,
+	}
+}
+
+func (gl *GitLabClient) request(endpoint string, params map[string]string) ([]byte, error) {
+	cacheKey := "req:" + endpoint + fmt.Sprintf("%v", params)
+	if cached, found := gl.cache.Get(cacheKey); found {
+		return cached.([]byte), nil
+	}
+
+	reqURL := gl.baseURL + endpoint
+	if len(params) > 0 {
+		q := url.Values{}
+		for k, v := range params {
+			q.Add(k, v)
+		}
+		reqURL += "?" + q.Encode()
+	}
+
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", gl.token)
+
+	resp, err := gl.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("GitLab API 错误: %d - %s", resp.StatusCode, string(body))
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err == nil {
+		gl.cache.Set(cacheKey, data)
+	}
+
+	return data, err
+}
+
+func (gl *GitLabClient) fetchAll(endpoint string, params map[string]string, parser func([]byte) (int, error)) error {
+	page := 1
+
+	for {
+		reqParams := make(map[string]string)
+		for k, v := range params {
+			reqParams[k] = v
+		}
+		reqParams["page"] = fmt.Sprintf("%d", page)
+		reqParams["per_page"] = fmt.Sprintf("%d", defaultPerPage)
+
+		data, err := gl.request(endpoint, reqParams)
+		if err != nil {
+			return err
+		}
+
+		count, err := parser(data)
+		if err != nil {
+			return err
+		}
+
+		if count == 0 {
+			break
+		}
+		if count < defaultPerPage {
+			break
+		}
+		page++
+	}
+	return nil
+}
+
+func (gl *GitLabClient) GetAllProjects() ([]Project, error) {
+	var allProjects []Project
+
+	err := gl.fetchAll("/projects", map[string]string{
+		"order_by": "updated_at",
+		"sort":     "desc",
+	}, func(data []byte) (int, error) {
+		var projects []Project
+		if err := json.Unmarshal(data, &projects); err != nil {
+			return 0, err
+		}
+		allProjects = append(allProjects, projects...)
+		return len(projects), nil
+	})
+
+	return allProjects, err
+}
+
+func (gl *GitLabClient) GetAllUsers() ([]GitLabUser, error) {
+	var allUsers []GitLabUser
+
+	err := gl.fetchAll("/users", map[string]string{
+		"active": "true",
+	}, func(data []byte) (int, error) {
+		var users []GitLabUser
+		if err := json.Unmarshal(data, &users); err != nil {
+			return 0, err
+		}
+		allUsers = append(allUsers, users...)
+		return len(users), nil
+	})
+
+	return allUsers, err
+}
+
+func (gl *GitLabClient) GetCommits(projectID int, since, until time.Time) ([]Commit, error) {
+	var allCommits []Commit
+
+	err := gl.fetchAll(fmt.Sprintf("/projects/%d/commits", projectID), map[string]string{
+		"since":      since.Format(time.RFC3339),
+		"until":      until.Format(time.RFC3339),
+		"with_stats": "true",
+	}, func(data []byte) (int, error) {
+		var commits []Commit
+		if err := json.Unmarshal(data, &commits); err != nil {
+			return 0, err
+		}
+		allCommits = append(allCommits, commits...)
+		return len(commits), nil
+	})
+
+	return allCommits, err
+}
+
+func (gl *GitLabClient) GetMergeRequests(projectID int, since, until time.Time) ([]MergeRequest, error) {
+	var allMRs []MergeRequest
+
+	err := gl.fetchAll(fmt.Sprintf("/projects/%d/merge_requests", projectID), map[string]string{
+		"created_after":  since.Format(time.RFC3339),
+		"created_before": until.Format(time.RFC3339),
+		"state":          "all",
+	}, func(data []byte) (int, error) {
+		var mrs []MergeRequest
+		if err := json.Unmarshal(data, &mrs); err != nil {
+			return 0, err
+		}
+		allMRs = append(allMRs, mrs...)
+		return len(mrs), nil
+	})
+
+	return allMRs, err
+}

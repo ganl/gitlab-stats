@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitLab 统计面板</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 30px;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .control-group label {
+            font-size: 0.95rem;
+        }
+
+        .control-group select {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: none;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+
+        .control-group select option {
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 30px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+
+        .stat-card {
+            background: #16213e;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-card h3 {
+            color: #667eea;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 15px;
+        }
+
+        .stat-card .value {
+            font-size: 2.8rem;
+            font-weight: bold;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stat-card .label {
+            color: #888;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+
+        .chart-container {
+            background: #16213e;
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .chart-container h2 {
+            margin-bottom: 25px;
+            color: #fff;
+            font-size: 1.5rem;
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 350px;
+        }
+
+        .two-columns {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 30px;
+        }
+
+        @media (max-width: 1024px) {
+            .two-columns {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .contributors-list {
+            background: #16213e;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .contributors-list h2 {
+            margin-bottom: 20px;
+            color: #fff;
+            font-size: 1.5rem;
+        }
+
+        .contributor-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 0;
+            border-bottom: 1px solid #2a2a4a;
+        }
+
+        .contributor-item:last-child {
+            border-bottom: none;
+        }
+
+        .contributor-name {
+            font-weight: 500;
+        }
+
+        .contributor-stats {
+            display: flex;
+            gap: 20px;
+            font-size: 0.9rem;
+        }
+
+        .additions {
+            color: #4ade80;
+        }
+
+        .deletions {
+            color: #f87171;
+        }
+
+        .commits {
+            color: #60a5fa;
+        }
+
+        .inactive-list {
+            background: #16213e;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .inactive-list h2 {
+            margin-bottom: 20px;
+            color: #f87171;
+            font-size: 1.5rem;
+        }
+
+        .inactive-item {
+            padding: 12px 0;
+            border-bottom: 1px solid #2a2a4a;
+            color: #888;
+        }
+
+        .inactive-item:last-child {
+            border-bottom: none;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            color: #888;
+        }
+
+        .error {
+            background: #7f1d1d;
+            color: #fca5a5;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .refresh-btn {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 10px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+
+        .refresh-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 GitLab 统计面板</h1>
+        <p>GitLab 实例代码贡献统计</p>
+        <div class="controls">
+            <div class="control-group">
+                <label for="period">统计周期:</label>
+                <select id="period" onchange="loadAllData()">
+                    <option value="day">按日</option>
+                    <option value="week">按周</option>
+                    <option value="month">按月</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="days">时间范围:</label>
+                <select id="days" onchange="loadAllData()">
+                    <option value="30">最近 30 天</option>
+                    <option value="90" selected>最近 90 天</option>
+                    <option value="180">最近 180 天</option>
+                    <option value="365">最近 1 年</option>
+                </select>
+            </div>
+            <button class="refresh-btn" onclick="loadAllData()">🔄 刷新</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div id="error-container"></div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>总提交数</h3>
+                <div class="value" id="total-commits">-</div>
+                <div class="label" id="commits-label">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>代码增加</h3>
+                <div class="value" id="total-additions">-</div>
+                <div class="label">行数</div>
+            </div>
+            <div class="stat-card">
+                <h3>代码删除</h3>
+                <div class="value" id="total-deletions">-</div>
+                <div class="label">行数</div>
+            </div>
+            <div class="stat-card">
+                <h3>合并请求</h3>
+                <div class="value" id="total-mrs">-</div>
+                <div class="label">MR 总数</div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <h2>📈 提交频率趋势</h2>
+            <div class="chart-wrapper">
+                <canvas id="commitChart"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <h2>🔀 Merge Request 统计</h2>
+            <div class="chart-wrapper">
+                <canvas id="mrChart"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <h2>💻 MR 合并趋势</h2>
+            <div class="chart-wrapper">
+                <canvas id="mrTrendChart"></canvas>
+            </div>
+        </div>
+
+        <div class="two-columns">
+            <div class="chart-container">
+                <h2>👥 代码量贡献排行</h2>
+                <div class="chart-wrapper">
+                    <canvas id="contributorsChart"></canvas>
+                </div>
+            </div>
+
+            <div class="contributors-list">
+                <h2>🏆 Top 贡献者</h2>
+                <div id="contributors-details"></div>
+            </div>
+        </div>
+
+        <div class="inactive-list" id="inactive-container" style="display: none;">
+            <h2>⚠️ 零提交成员</h2>
+            <div id="inactive-details"></div>
+        </div>
+    </div>
+
+    <script>
+        let commitChart, mrChart, mrTrendChart, contributorsChart;
+
+        function getParams() {
+            return {
+                period: document.getElementById('period').value,
+                days: document.getElementById('days').value
+            };
+        }
+
+        function getPeriodLabel() {
+            const period = document.getElementById('period').value;
+            const days = document.getElementById('days').value;
+            if (period === 'day') return `最近 ${days} 天`;
+            if (period === 'week') return `最近 ${days} 天 (按周)`;
+            return `最近 ${days} 天 (按月)`;
+        }
+
+        async function loadAllData() {
+            try {
+                document.getElementById('error-container').innerHTML = '';
+
+                await Promise.all([
+                    loadCommitFrequency(),
+                    loadMRStatistics(),
+                    loadCodeVolume()
+                ]);
+            } catch (error) {
+                document.getElementById('error-container').innerHTML =
+                    `<div class="error">⚠️ 加载数据失败: ${error.message}<br>请检查 config.json 配置是否正确</div>`;
+            }
+        }
+
+        async function loadCommitFrequency() {
+            const params = getParams();
+            const response = await fetch(`/api/stats/commit-frequency?period=${params.period}&days=${params.days}`);
+            const data = await response.json();
+
+            if (data.error) throw new Error(data.error);
+
+            document.getElementById('total-commits').textContent =
+                data.reduce((sum, item) => sum + item.count, 0);
+            document.getElementById('commits-label').textContent = getPeriodLabel();
+
+            const labels = data.map(item => item.date);
+            const values = data.map(item => item.count);
+
+            if (commitChart) commitChart.destroy();
+
+            commitChart = new Chart(document.getElementById('commitChart'), {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '提交数',
+                        data: values,
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: { grid: { color: '#2a2a4a' }, ticks: { color: '#888' } },
+                        y: { grid: { color: '#2a2a4a' }, ticks: { color: '#888' } }
+                    }
+                }
+            });
+        }
+
+        async function loadMRStatistics() {
+            const params = getParams();
+            const response = await fetch(`/api/stats/mr-statistics?period=${params.period}&days=${params.days}`);
+            const data = await response.json();
+
+            if (data.error) throw new Error(data.error);
+
+            document.getElementById('total-mrs').textContent = data.total;
+
+            if (mrChart) mrChart.destroy();
+
+            mrChart = new Chart(document.getElementById('mrChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: ['已合并', '进行中', '已关闭'],
+                    datasets: [{
+                        data: [data.merged, data.opened, data.closed],
+                        backgroundColor: ['#4ade80', '#60a5fa', '#f87171']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: '#888' }
+                        }
+                    }
+                }
+            });
+
+            if (mrTrendChart) mrTrendChart.destroy();
+
+            const mergedByDay = data.merged_by_day;
+            const trendLabels = Object.keys(mergedByDay).sort();
+            const trendValues = trendLabels.map(date => mergedByDay[date]);
+
+            mrTrendChart = new Chart(document.getElementById('mrTrendChart'), {
+                type: 'bar',
+                data: {
+                    labels: trendLabels,
+                    datasets: [{
+                        label: '合并的 MR',
+                        data: trendValues,
+                        backgroundColor: '#4ade80'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: { grid: { color: '#2a2a4a' }, ticks: { color: '#888' } },
+                        y: { grid: { color: '#2a2a4a' }, ticks: { color: '#888' } }
+                    }
+                }
+            });
+        }
+
+        async function loadCodeVolume() {
+            const params = getParams();
+            const response = await fetch(`/api/stats/code-volume?days=${params.days}`);
+            const data = await response.json();
+
+            if (data.error) throw new Error(data.error);
+
+            document.getElementById('total-additions').textContent = '+' + data.total_additions;
+            document.getElementById('total-deletions').textContent = '-' + data.total_deletions;
+
+            const contributors = Object.entries(data.top_contributors);
+            const names = contributors.map(([name]) => name.length > 15 ? name.substring(0, 15) + '...' : name);
+            const additions = contributors.map(([, stats]) => stats.additions);
+            const deletions = contributors.map(([, stats]) => stats.deletions);
+
+            if (contributorsChart) contributorsChart.destroy();
+
+            contributorsChart = new Chart(document.getElementById('contributorsChart'), {
+                type: 'bar',
+                data: {
+                    labels: names,
+                    datasets: [
+                        {
+                            label: '增加',
+                            data: additions,
+                            backgroundColor: '#4ade80'
+                        },
+                        {
+                            label: '删除',
+                            data: deletions.map(d => -d),
+                            backgroundColor: '#f87171'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: '#888' } }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: '#2a2a4a' },
+                            ticks: { color: '#888' },
+                            stacked: true
+                        },
+                        y: {
+                            grid: { color: '#2a2a4a' },
+                            ticks: { color: '#888' },
+                            stacked: true
+                        }
+                    }
+                }
+            });
+
+            const detailsContainer = document.getElementById('contributors-details');
+            detailsContainer.innerHTML = contributors.map(([name, stats]) => `
+                <div class="contributor-item">
+                    <span class="contributor-name">${name}</span>
+                    <div class="contributor-stats">
+                        <span class="commits">📝 ${stats.commits}</span>
+                        <span class="additions">+${stats.additions}</span>
+                        <span class="deletions">-${stats.deletions}</span>
+                    </div>
+                </div>
+            `).join('');
+
+            const inactiveContainer = document.getElementById('inactive-container');
+            const inactiveDetails = document.getElementById('inactive-details');
+            if (data.inactive_members && data.inactive_members.length > 0) {
+                inactiveContainer.style.display = 'block';
+                inactiveDetails.innerHTML = data.inactive_members.map(name => `
+                    <div class="inactive-item">${name}</div>
+                `).join('');
+            } else {
+                inactiveContainer.style.display = 'none';
+            }
+        }
+
+        loadAllData();
+    </script>
+</body>
+</html>
