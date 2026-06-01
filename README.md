@@ -1,37 +1,42 @@
-# GitLab 统计工具
+# GitLab Stats
 
-一个高性能的 GitLab 代码统计分析工具，支持提交频率、MR 状态、代码量贡献分析等功能。
+A high-performance GitLab code statistics and analysis tool that supports commit frequency, MR status, and code volume contribution analysis.
 
-## 功能特性
+[中文版文档](README-CN.md)
 
-- 📈 **提交频率统计** - 按日/周/月统计代码提交趋势
-- 🔄 **MR 状态分析** - 合并请求状态统计和趋势
-- 👥 **贡献者排行榜** - 按提交次数和代码量排名
-- 🔍 **零提交检测** - 找出零提交的团队成员
-- ⚡ **并发处理** - 高性能并发请求，数据获取更快
-- 💾 **智能缓存** - 自动缓存 API 响应，减少重复请求
-- 📊 **可视化界面** - 美观的 Web 控制面板
+## Features
 
-## 快速开始
+- 📈 **Commit Frequency Statistics** - Analyze code commit trends by day/week/month
+- 🔄 **MR Status Analysis** - Merge request status statistics and trends
+- 👥 **Contributor Leaderboard** - Rank contributors by commit count and code volume
+- 🔍 **Zero-Commit Detection** - Identify team members with zero commits
+- ⚡ **Concurrent Processing** - High-performance concurrent requests for faster data retrieval
+- 💾 **Smart Caching** - Automatically cache API responses to reduce duplicate requests
+- 📊 **Visual Interface** - Beautiful web dashboard
 
-### 安装
+## Quick Start
+
+### Installation
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/ganl/gitlab-stats.git
 cd gitlab-stats
-go build -o gitlab-stats.exe
+go build -o gitlab-stats
 ```
 
-### 配置
+### Configuration
 
-复制配置文件并修改：
+Copy and modify the configuration file:
 
 ```bash
+# Linux/macOS
+cp config.json.dist config.json
+
 # Windows
 copy config.json.dist config.json
 ```
 
-编辑 `config.json`：
+Edit `config.json`:
 
 ```json
 {
@@ -45,103 +50,107 @@ copy config.json.dist config.json
 }
 ```
 
-**配置说明：**
-- `gitlab_url` - GitLab 实例地址（必填）
-- `token` - GitLab 访问 Token（必填）
-- `port` - Web 服务端口（默认 8080）
-- `max_concurrent` - 最大并发请求数（1-100，默认 20）
-- `request_timeout` - 单请求超时时间（默认 30s）
-- `cache_enabled` - 是否启用缓存（默认 true）
-- `cache_ttl` - 缓存过期时间（默认 5m）
+**Configuration Options:**
+- `gitlab_url` - GitLab instance URL (required)
+- `token` - GitLab access token (required)
+- `port` - Web service port (default: 8080)
+- `max_concurrent` - Maximum concurrent requests (1-100, default: 20)
+- `request_timeout` - Single request timeout (default: 30s)
+- `cache_enabled` - Enable caching (default: true)
+- `cache_ttl` - Cache expiration time (default: 5m)
 
-### 获取 Token
+### Getting a Token
 
-1. 登录 GitLab
-2. 进入 Profile → Access Tokens
-3. 生成新 Token，勾选以下权限：
+1. Log in to GitLab
+2. Go to Profile → Access Tokens
+3. Generate a new token with the following scopes:
    - `read_api`
    - `read_user`
 
-### 运行
+### Running
 
 ```bash
-./gitlab-stats.exe
+# Linux/macOS
+./gitlab-stats
+
+# Windows
+.\gitlab-stats.exe
 ```
 
-然后访问 http://localhost:8080
+Then visit http://localhost:8080
 
-## API 接口
+## API Endpoints
 
-| 接口 | 说明 |
-|------|------|
-| `GET /` | Web 面板 |
-| `GET /health` | 健康检查 |
-| `GET /api/stats/commit-frequency?period=day&days=90` | 提交频率统计 |
-| `GET /api/stats/mr-statistics?period=day&days=90` | MR 状态统计 |
-| `GET /api/stats/code-volume?days=90` | 代码量统计 |
+| Endpoint | Description |
+|----------|-------------|
+| `GET /` | Web dashboard |
+| `GET /health` | Health check |
+| `GET /api/stats/commit-frequency?period=day&days=90` | Commit frequency statistics |
+| `GET /api/stats/mr-statistics?period=day&days=90` | MR status statistics |
+| `GET /api/stats/code-volume?days=90` | Code volume statistics |
 
-**查询参数：**
-- `period` - 统计周期：`day`（默认）/ `week` / `month`
-- `days` - 统计天数：默认 90
+**Query Parameters:**
+- `period` - Statistics period: `day` (default) / `week` / `month`
+- `days` - Number of days to analyze: default 90
 
-## 开发
+## Development
 
-### 项目结构
+### Project Structure
 
 ```
 gitlab-stats/
-├── main.go          # 入口文件
-├── config.go        # 配置加载
-├── types.go         # 数据结构
-├── gitlab.go        # GitLab API 客户端
-├── cache.go         # 缓存实现
-├── handler.go       # HTTP 处理
-├── config.json      # 配置文件
-├── go.mod           # Go 模块
+├── main.go          # Entry point
+├── config.go        # Configuration loading
+├── types.go         # Data structures
+├── gitlab.go        # GitLab API client
+├── cache.go         # Cache implementation
+├── handler.go       # HTTP handlers
+├── config.json      # Configuration file
+├── go.mod           # Go module
 ├── templates/
-│   └── index.html   # Web 面板
-└── *_test.go        # 测试文件
+│   └── index.html   # Web dashboard
+└── *_test.go        # Test files
 ```
 
-### 运行测试
+### Running Tests
 
 ```bash
-# 运行所有测试
+# Run all tests
 go test -v
 
-# 查看覆盖率
+# View coverage
 go test -cover
 ```
 
-### 重新编译
+### Rebuilding
 
 ```bash
-go build -o gitlab-stats.exe
+go build -o gitlab-stats
 ```
 
-## 性能优化
+## Performance Optimization
 
-- **并发控制** - 通过 `max_concurrent` 控制并发请求数，防止被限流
-- **连接池** - HTTP 客户端配置连接复用
-- **智能缓存** - 可配置的响应缓存，减少重复请求
-- **分页处理** - 自动处理 GitLab API 分页，获取完整数据
+- **Concurrency Control** - Control concurrent requests via `max_concurrent` to prevent rate limiting
+- **Connection Pooling** - HTTP client configured for connection reuse
+- **Smart Caching** - Configurable response caching to reduce duplicate requests
+- **Pagination Handling** - Automatic GitLab API pagination for complete data retrieval
 
-## 故障排查
+## Troubleshooting
 
-### 配置加载失败
+### Configuration Loading Failed
 
-检查 `config.json` 是否存在并且格式正确。
+Check if `config.json` exists and has the correct format.
 
-### GitLab API 错误
+### GitLab API Errors
 
-确认：
-- Token 权限是否足够
-- GitLab URL 是否正确
-- 网络连接是否正常
+Verify:
+- Token has sufficient permissions
+- GitLab URL is correct
+- Network connection is working
 
-### 性能问题
+### Performance Issues
 
-调整 `max_concurrent` 或启用缓存：
+Adjust `max_concurrent` or enable caching:
 
 ```json
 {
@@ -151,8 +160,8 @@ go build -o gitlab-stats.exe
 }
 ```
 
-## 许可证
+## License
 
-本项目采用 Apache License, Version 2.0 许可证。
+This project is licensed under the Apache License, Version 2.0.
 
-详见 [LICENSE](LICENSE) 文件或访问 http://www.apache.org/licenses/LICENSE-2.0 了解完整条款。
+See the [LICENSE](LICENSE) file or visit http://www.apache.org/licenses/LICENSE-2.0 for full terms.
