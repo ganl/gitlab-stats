@@ -17,6 +17,7 @@ package main
 import (
 	"encoding/json"
 	"html/template"
+	"log"
 	"net/http"
 	"sort"
 	"strconv"
@@ -105,14 +106,18 @@ func (h *Handler) commitFrequencyHandler(w http.ResponseWriter, r *http.Request)
 
 	projects, err := h.gl.GetAllProjects()
 	if err != nil {
-		h.jsonError(w, http.StatusInternalServerError, "获取项目失败")
+		log.Printf("[ERROR] 获取项目列表失败: %v", err)
+		h.jsonError(w, http.StatusInternalServerError, "获取项目失败: "+err.Error())
 		return
 	}
+
+	log.Printf("[INFO] 找到 %d 个项目，开始获取提交数据...", len(projects))
 
 	commitByPeriod := make(map[string]int)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, h.config.MaxConcurrent)
+	var failedCount int
 
 	for _, project := range projects {
 		wg.Add(1)
@@ -123,6 +128,10 @@ func (h *Handler) commitFrequencyHandler(w http.ResponseWriter, r *http.Request)
 
 			commits, err := h.gl.GetCommits(p.ID, startDate, endDate)
 			if err != nil {
+				mu.Lock()
+				failedCount++
+				mu.Unlock()
+				log.Printf("[WARN] 获取项目 [%s] (ID: %d) 提交失败: %v", p.Name, p.ID, err)
 				return
 			}
 			mu.Lock()
@@ -135,6 +144,10 @@ func (h *Handler) commitFrequencyHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	wg.Wait()
+
+	if failedCount > 0 {
+		log.Printf("[WARN] 完成提交频率统计，成功 %d 个项目，失败 %d 个", len(projects)-failedCount, failedCount)
+	}
 
 	var result []CommitFrequency
 	for date, count := range commitByPeriod {
@@ -155,9 +168,12 @@ func (h *Handler) mrStatisticsHandler(w http.ResponseWriter, r *http.Request) {
 
 	projects, err := h.gl.GetAllProjects()
 	if err != nil {
-		h.jsonError(w, http.StatusInternalServerError, "获取项目失败")
+		log.Printf("[ERROR] 获取项目列表失败: %v", err)
+		h.jsonError(w, http.StatusInternalServerError, "获取项目失败: "+err.Error())
 		return
 	}
+
+	log.Printf("[INFO] 找到 %d 个项目，开始获取 MR 数据...", len(projects))
 
 	stats := MRStatistics{
 		Authors:     make(map[string]int),
@@ -167,6 +183,7 @@ func (h *Handler) mrStatisticsHandler(w http.ResponseWriter, r *http.Request) {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, h.config.MaxConcurrent)
+	var failedCount int
 
 	for _, project := range projects {
 		wg.Add(1)
@@ -177,6 +194,10 @@ func (h *Handler) mrStatisticsHandler(w http.ResponseWriter, r *http.Request) {
 
 			mrs, err := h.gl.GetMergeRequests(p.ID, startDate, endDate)
 			if err != nil {
+				mu.Lock()
+				failedCount++
+				mu.Unlock()
+				log.Printf("[WARN] 获取项目 [%s] (ID: %d) MR 失败: %v", p.Name, p.ID, err)
 				return
 			}
 			mu.Lock()
@@ -202,6 +223,10 @@ func (h *Handler) mrStatisticsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wg.Wait()
+
+	if failedCount > 0 {
+		log.Printf("[WARN] 完成 MR 统计，成功 %d 个项目，失败 %d 个", len(projects)-failedCount, failedCount)
+	}
 
 	sortedAuthors := make([]string, 0, len(stats.Authors))
 	for k := range stats.Authors {
@@ -251,9 +276,12 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 
 	allUsers, err := h.gl.GetAllUsers()
 	if err != nil {
-		h.jsonError(w, http.StatusInternalServerError, "获取用户失败")
+		log.Printf("[ERROR] 获取用户列表失败: %v", err)
+		h.jsonError(w, http.StatusInternalServerError, "获取用户失败: "+err.Error())
 		return
 	}
+
+	log.Printf("[INFO] 找到 %d 个用户", len(allUsers))
 
 	userNames := make(map[string]bool)
 	for _, user := range allUsers {
@@ -262,13 +290,17 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 
 	projects, err := h.gl.GetAllProjects()
 	if err != nil {
-		h.jsonError(w, http.StatusInternalServerError, "获取项目失败")
+		log.Printf("[ERROR] 获取项目列表失败: %v", err)
+		h.jsonError(w, http.StatusInternalServerError, "获取项目失败: "+err.Error())
 		return
 	}
+
+	log.Printf("[INFO] 找到 %d 个项目，开始获取代码量数据...", len(projects))
 
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, h.config.MaxConcurrent)
+	var failedCount int
 
 	for _, project := range projects {
 		wg.Add(1)
@@ -279,6 +311,10 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 
 			commits, err := h.gl.GetCommits(p.ID, startDate, endDate)
 			if err != nil {
+				mu.Lock()
+				failedCount++
+				mu.Unlock()
+				log.Printf("[WARN] 获取项目 [%s] (ID: %d) 代码量失败: %v", p.Name, p.ID, err)
 				return
 			}
 			mu.Lock()
@@ -303,6 +339,10 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wg.Wait()
+
+	if failedCount > 0 {
+		log.Printf("[WARN] 完成代码量统计，成功 %d 个项目，失败 %d 个", len(projects)-failedCount, failedCount)
+	}
 
 	for userName := range userNames {
 		if _, hasCommit := stats.TopContributors[userName]; !hasCommit {

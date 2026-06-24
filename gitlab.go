@@ -81,7 +81,7 @@ func (gl *GitLabClient) request(endpoint string, params map[string]string) ([]by
 			}
 			return u
 		}
-		log.Printf("[REQUEST] GET %s (params: %v, token: %s)", endpoint, params, maskToken(gl.token))
+		log.Printf("[REQUEST] GET %s (URL: %s, params: %v, token: %s)", endpoint, reqURL, params, maskToken(gl.token))
 	}
 
 	req, err := http.NewRequest("GET", reqURL, nil)
@@ -112,7 +112,7 @@ func (gl *GitLabClient) request(endpoint string, params map[string]string) ([]by
 
 	if resp.StatusCode != http.StatusOK {
 		if gl.logEnabled {
-			log.Printf("[ERROR] GitLab API error: %d - %s", resp.StatusCode, string(body))
+			log.Printf("[ERROR] GitLab API error: %d - URL: %s - %s", resp.StatusCode, reqURL, string(body))
 		}
 		return nil, fmt.Errorf("GitLab API 错误: %d - %s", resp.StatusCode, string(body))
 	}
