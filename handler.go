@@ -100,6 +100,42 @@ func (h *Handler) jsonError(w http.ResponseWriter, status int, message string) {
 	json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
+func normalizeString(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
+}
+
+func (h *Handler) matchUser(email, name, username string, emailToUser, nameToUser, usernameToUser map[string]GitLabUser) (GitLabUser, bool) {
+	// 1. 优先通过邮箱匹配
+	if email != "" {
+		if user, ok := emailToUser[normalizeString(email)]; ok {
+			return user, true
+		}
+	}
+
+	// 2. 通过用户名匹配
+	if username != "" {
+		if user, ok := usernameToUser[normalizeString(username)]; ok {
+			return user, true
+		}
+	}
+
+	// 3. 通过姓名匹配（大小写不敏感）
+	if name != "" {
+		if user, ok := nameToUser[normalizeString(name)]; ok {
+			return user, true
+		}
+	}
+
+	return GitLabUser{}, false
+}
+
+func (h *Handler) buildProfileURL(gitlabURL, username string) string {
+	if username == "" {
+		return ""
+	}
+	return strings.TrimSuffix(gitlabURL, "/") + "/" + username
+}
+
 func (h *Handler) commitFrequencyHandler(w http.ResponseWriter, r *http.Request) {
 	period, days := h.parseQueryParams(r)
 	endDate := time.Now()
@@ -175,11 +211,19 @@ func (h *Handler) mrStatisticsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 构建 username -> user 映射
-	usernameToUser := make(map[string]GitLabUser)
+	// 构建多维度用户映射（大小写不敏感）
+	emailToUser := make(map[string]GitLabUser)
+	usernameMap := make(map[string]GitLabUser)
+	nameMap := make(map[string]GitLabUser)
 	for _, user := range allUsers {
+		if user.Email != "" {
+			emailToUser[normalizeString(user.Email)] = user
+		}
 		if user.Username != "" {
-			usernameToUser[strings.ToLower(user.Username)] = user
+			usernameMap[normalizeString(user.Username)] = user
+		}
+		if user.Name != "" {
+			nameMap[normalizeString(user.Name)] = user
 		}
 	}
 
@@ -259,21 +303,17 @@ func (h *Handler) mrStatisticsHandler(w http.ResponseWriter, r *http.Request) {
 	// 构建作者列表并排序
 	authorList := make([]MRAuthor, 0, len(authorCounts))
 	for name, count := range authorCounts {
+		apiUsername := authorUsernames[name]
+		user, matched := h.matchUser("", name, apiUsername, emailToUser, nameMap, usernameMap)
+
 		username := ""
 		profileURL := ""
-
-		// 优先用 API 返回的 username
-		if un, ok := authorUsernames[name]; ok {
-			username = un
-		}
-
-		// 通过 username 匹配用户信息
-		if username != "" {
-			if user, exists := usernameToUser[strings.ToLower(username)]; exists {
-				profileURL = strings.TrimSuffix(h.config.GitLabURL, "/") + "/" + user.Username
-			} else {
-				profileURL = strings.TrimSuffix(h.config.GitLabURL, "/") + "/" + username
-			}
+		if matched {
+			username = user.Username
+			profileURL = h.buildProfileURL(h.config.GitLabURL, user.Username)
+		} else if apiUsername != "" {
+			username = apiUsername
+			profileURL = h.buildProfileURL(h.config.GitLabURL, apiUsername)
 		}
 
 		authorList = append(authorList, MRAuthor{
@@ -324,15 +364,25 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[INFO] 找到 %d 个用户", len(allUsers))
 
-	// 构建邮箱 -> 用户信息的映射（大小写不敏感）
+	// 构建多维度用户映射（大小写不敏感）
 	emailToUser := make(map[string]GitLabUser)
+	usernameToUser := make(map[string]GitLabUser)
+	nameToUser := make(map[string]GitLabUser)
 	for _, user := range allUsers {
 		if user.Email != "" {
-			normalizedEmail := strings.ToLower(user.Email)
+			normalizedEmail := strings.ToLower(strings.TrimSpace(user.Email))
 			emailToUser[normalizedEmail] = user
 		}
+		if user.Username != "" {
+			normalizedUsername := strings.ToLower(strings.TrimSpace(user.Username))
+			usernameToUser[normalizedUsername] = user
+		}
+		if user.Name != "" {
+			normalizedName := strings.ToLower(strings.TrimSpace(user.Name))
+			nameToUser[normalizedName] = user
+		}
 	}
-	log.Printf("[DEBUG] 有邮箱的用户数: %d", len(emailToUser))
+	log.Printf("[DEBUG] 用户映射统计: 邮箱 %d, 用户名 %d, 姓名 %d", len(emailToUser), len(usernameToUser), len(nameToUser))
 
 	projects, err := h.gl.GetAllProjects()
 	if err != nil {
@@ -405,20 +455,23 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[WARN] 完成代码量统计，成功 %d 个项目，失败 %d 个", len(projects)-failedCount, failedCount)
 	}
 
-	log.Printf("[DEBUG] GitLab 用户邮箱数: %d, 提交作者邮箱数: %d", len(emailToUser), len(commitEmails))
+	log.Printf("[DEBUG] GitLab 用户映射统计: 有邮箱 %d, 提交邮箱数 %d", len(emailToUser), len(commitEmails))
+
+	// 构建已提交用户名集合（多维度匹配）
+	commitUsers := make(map[int]bool) // user ID -> bool
 
 	// 构建贡献者信息（带用户资料）
 	contributorList := make([]TopContributor, 0, len(contributorStats))
 	for authorName, authorStats := range contributorStats {
+		authorEmail := authorToEmail[authorName]
+		user, matched := h.matchUser(authorEmail, authorName, "", emailToUser, nameToUser, usernameToUser)
+
 		username := ""
 		profileURL := ""
-
-		// 通过邮箱查找用户信息（O(1) 查找）
-		if email, exists := authorToEmail[authorName]; exists {
-			if user, ok := emailToUser[email]; ok {
-				username = user.Username
-				profileURL = strings.TrimSuffix(h.config.GitLabURL, "/") + "/" + user.Username
-			}
+		if matched {
+			username = user.Username
+			profileURL = h.buildProfileURL(h.config.GitLabURL, user.Username)
+			commitUsers[user.ID] = true
 		}
 
 		contributorList = append(contributorList, TopContributor{
@@ -431,26 +484,27 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// 用邮箱匹配用户：检查每个用户的邮箱是否在提交者邮箱中
+	// 零提交成员检测
 	inactiveCount := 0
 	for _, user := range allUsers {
-		hasCommit := false
-		if user.Email != "" {
-			normalizedEmail := strings.ToLower(user.Email)
-			if commitEmails[normalizedEmail] {
+		hasCommit := commitUsers[user.ID]
+
+		// 备用检测：邮箱匹配
+		if !hasCommit && user.Email != "" {
+			if commitEmails[normalizeString(user.Email)] {
 				hasCommit = true
 			}
 		}
 
 		if !hasCommit {
 			inactiveCount++
-			profileURL := strings.TrimSuffix(h.config.GitLabURL, "/") + "/" + user.Username
+			profileURL := h.buildProfileURL(h.config.GitLabURL, user.Username)
 			stats.InactiveMembers = append(stats.InactiveMembers, InactiveMember{
 				Name:       user.Name,
 				Username:   user.Username,
 				ProfileURL: profileURL,
 			})
-			log.Printf("[DEBUG] 零提交成员: %s (@%s, 邮箱: %s)", user.Name, user.Username, user.Email)
+			log.Printf("[DEBUG] 零提交成员: %s (@%s)", user.Name, user.Username)
 		}
 	}
 
