@@ -272,7 +272,7 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 
 	stats := CodeVolume{
 		TopContributors: make(map[string]ContributorStats),
-		InactiveMembers: []string{},
+		InactiveMembers: []InactiveMember{},
 	}
 
 	allUsers, err := h.gl.GetAllUsers()
@@ -376,13 +376,20 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 
 		if !hasCommit {
 			inactiveCount++
-			stats.InactiveMembers = append(stats.InactiveMembers, user.Name)
-			log.Printf("[DEBUG] 零提交成员: %s (邮箱: %s)", user.Name, user.Email)
+			profileURL := strings.TrimSuffix(h.config.GitLabURL, "/") + "/" + user.Username
+			stats.InactiveMembers = append(stats.InactiveMembers, InactiveMember{
+				Name:       user.Name,
+				Username:   user.Username,
+				ProfileURL: profileURL,
+			})
+			log.Printf("[DEBUG] 零提交成员: %s (@%s, 邮箱: %s)", user.Name, user.Username, user.Email)
 		}
 	}
 
 	log.Printf("[INFO] 零提交成员数: %d / %d", inactiveCount, len(allUsers))
-	sort.Strings(stats.InactiveMembers)
+	sort.Slice(stats.InactiveMembers, func(i, j int) bool {
+		return stats.InactiveMembers[i].Name < stats.InactiveMembers[j].Name
+	})
 
 	type contributor struct {
 		Name  string

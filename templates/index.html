@@ -580,8 +580,13 @@
             const inactiveDetails = document.getElementById('inactive-details');
             if (data.inactive_members && data.inactive_members.length > 0) {
                 inactiveContainer.style.display = 'block';
-                inactiveDetails.innerHTML = data.inactive_members.map(name => `
-                    <div class="inactive-item">${name}</div>
+                inactiveDetails.innerHTML = data.inactive_members.map(member => `
+                    <div class="inactive-item">
+                        <a href="${member.profile_url}" target="_blank" style="color: #888; text-decoration: none;">
+                            ${member.name} <span style="opacity: 0.6;">(@${member.username})</span>
+                            <span style="float: right;">↗</span>
+                        </a>
+                    </div>
                 `).join('');
             } else {
                 inactiveContainer.style.display = 'none';
