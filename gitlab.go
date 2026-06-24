@@ -194,7 +194,7 @@ func (gl *GitLabClient) GetAllUsers() ([]GitLabUser, error) {
 func (gl *GitLabClient) GetCommits(projectID int, since, until time.Time) ([]Commit, error) {
 	var allCommits []Commit
 
-	err := gl.fetchAll(fmt.Sprintf("/projects/%d/commits", projectID), map[string]string{
+	err := gl.fetchAll(fmt.Sprintf("/projects/%d/repository/commits", projectID), map[string]string{
 		"since":      since.Format(time.RFC3339),
 		"until":      until.Format(time.RFC3339),
 		"with_stats": "true",
