@@ -471,9 +471,9 @@
 
             if (mrTrendChart) mrTrendChart.destroy();
 
-            const mergedByDay = data.merged_by_day;
-            const trendLabels = Object.keys(mergedByDay).sort();
-            const trendValues = trendLabels.map(date => mergedByDay[date]);
+            const mergedByDay = data.merged_by_day || [];
+            const trendLabels = mergedByDay.map(item => item.date);
+            const trendValues = mergedByDay.map(item => item.count);
 
             mrTrendChart = new Chart(document.getElementById('mrTrendChart'), {
                 type: 'bar',

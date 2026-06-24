@@ -167,6 +167,22 @@ func (h *Handler) mrStatisticsHandler(w http.ResponseWriter, r *http.Request) {
 	endDate := time.Now()
 	startDate := endDate.AddDate(0, 0, -days)
 
+	// 获取所有用户用于匹配
+	allUsers, err := h.gl.GetAllUsers()
+	if err != nil {
+		log.Printf("[ERROR] 获取用户列表失败: %v", err)
+		h.jsonError(w, http.StatusInternalServerError, "获取用户失败: "+err.Error())
+		return
+	}
+
+	// 构建 username -> user 映射
+	usernameToUser := make(map[string]GitLabUser)
+	for _, user := range allUsers {
+		if user.Username != "" {
+			usernameToUser[strings.ToLower(user.Username)] = user
+		}
+	}
+
 	projects, err := h.gl.GetAllProjects()
 	if err != nil {
 		log.Printf("[ERROR] 获取项目列表失败: %v", err)
@@ -177,9 +193,13 @@ func (h *Handler) mrStatisticsHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[INFO] 找到 %d 个项目，开始获取 MR 数据...", len(projects))
 
 	stats := MRStatistics{
-		Authors:     make(map[string]int),
-		MergedByDay: make(map[string]int),
+		Authors:     []MRAuthor{},
+		MergedByDay: []MergedByDay{},
 	}
+
+	authorCounts := make(map[string]int)
+	authorUsernames := make(map[string]string) // name -> username (from API)
+	mergedByDayMap := make(map[string]int)
 
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -204,14 +224,21 @@ func (h *Handler) mrStatisticsHandler(w http.ResponseWriter, r *http.Request) {
 			mu.Lock()
 			for _, mr := range mrs {
 				stats.Total++
-				stats.Authors[mr.Author.Name]++
+				authorName := mr.Author.Name
+				if authorName == "" {
+					authorName = "Unknown"
+				}
+				authorCounts[authorName]++
+				if mr.Author.Username != "" {
+					authorUsernames[authorName] = mr.Author.Username
+				}
 
 				switch mr.State {
 				case "merged":
 					stats.Merged++
 					if mr.MergedAt != nil {
 						key := h.formatKey(*mr.MergedAt, period)
-						stats.MergedByDay[key]++
+						mergedByDayMap[key]++
 					}
 				case "opened":
 					stats.Opened++
@@ -229,37 +256,50 @@ func (h *Handler) mrStatisticsHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[WARN] 完成 MR 统计，成功 %d 个项目，失败 %d 个", len(projects)-failedCount, failedCount)
 	}
 
-	sortedAuthors := make([]string, 0, len(stats.Authors))
-	for k := range stats.Authors {
-		sortedAuthors = append(sortedAuthors, k)
-	}
-	sort.Slice(sortedAuthors, func(i, j int) bool {
-		return stats.Authors[sortedAuthors[i]] > stats.Authors[sortedAuthors[j]]
-	})
-	if len(sortedAuthors) > 10 {
-		sortedAuthors = sortedAuthors[:10]
-	}
-	topAuthors := make(map[string]int)
-	for _, name := range sortedAuthors {
-		topAuthors[name] = stats.Authors[name]
-	}
-	stats.Authors = topAuthors
+	// 构建作者列表并排序
+	authorList := make([]MRAuthor, 0, len(authorCounts))
+	for name, count := range authorCounts {
+		username := ""
+		profileURL := ""
 
-	type mergedDayItem struct {
-		Date  string `json:"date"`
-		Count int    `json:"count"`
+		// 优先用 API 返回的 username
+		if un, ok := authorUsernames[name]; ok {
+			username = un
+		}
+
+		// 通过 username 匹配用户信息
+		if username != "" {
+			if user, exists := usernameToUser[strings.ToLower(username)]; exists {
+				profileURL = strings.TrimSuffix(h.config.GitLabURL, "/") + "/" + user.Username
+			} else {
+				profileURL = strings.TrimSuffix(h.config.GitLabURL, "/") + "/" + username
+			}
+		}
+
+		authorList = append(authorList, MRAuthor{
+			Name:       name,
+			Username:   username,
+			ProfileURL: profileURL,
+			Count:      count,
+		})
 	}
-	mergedByDayList := make([]mergedDayItem, 0, len(stats.MergedByDay))
-	for date, count := range stats.MergedByDay {
-		mergedByDayList = append(mergedByDayList, mergedDayItem{Date: date, Count: count})
+	sort.Slice(authorList, func(i, j int) bool {
+		return authorList[i].Count > authorList[j].Count
+	})
+	if len(authorList) > 10 {
+		authorList = authorList[:10]
+	}
+	stats.Authors = authorList
+
+	// 构建按日合并列表
+	mergedByDayList := make([]MergedByDay, 0, len(mergedByDayMap))
+	for date, count := range mergedByDayMap {
+		mergedByDayList = append(mergedByDayList, MergedByDay{Date: date, Count: count})
 	}
 	sort.Slice(mergedByDayList, func(i, j int) bool {
 		return mergedByDayList[i].Date < mergedByDayList[j].Date
 	})
-	stats.MergedByDay = make(map[string]int)
-	for _, item := range mergedByDayList {
-		stats.MergedByDay[item.Date] = item.Count
-	}
+	stats.MergedByDay = mergedByDayList
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
@@ -304,9 +344,11 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[INFO] 找到 %d 个项目，开始获取代码量数据...", len(projects))
 
 	// 临时存储贡献者统计
-	contributorStats := make(map[string]*ContributorStats)
-	// 收集提交者的邮箱（用于匹配用户）
-	commitAuthorEmails := make(map[string]string) // email -> author name
+	contributorStats := make(map[string]ContributorStats)
+	// 收集提交者邮箱映射：authorName -> authorEmail（同一个作者只保留第一个邮箱）
+	authorToEmail := make(map[string]string)
+	// 收集所有提交过的邮箱集合（用于判断零提交）
+	commitEmails := make(map[string]bool)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, h.config.MaxConcurrent)
@@ -338,20 +380,20 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 					authorName = "Unknown"
 				}
 
-				// 收集提交者邮箱映射
+				// 收集邮箱映射
 				if commit.AuthorEmail != "" {
 					normalizedEmail := strings.ToLower(commit.AuthorEmail)
-					if _, exists := commitAuthorEmails[normalizedEmail]; !exists {
-						commitAuthorEmails[normalizedEmail] = authorName
+					commitEmails[normalizedEmail] = true
+					if _, exists := authorToEmail[authorName]; !exists {
+						authorToEmail[authorName] = normalizedEmail
 					}
 				}
 
-				if _, exists := contributorStats[authorName]; !exists {
-					contributorStats[authorName] = &ContributorStats{}
-				}
-				contributorStats[authorName].Additions += commit.Stats.Additions
-				contributorStats[authorName].Deletions += commit.Stats.Deletions
-				contributorStats[authorName].Commits++
+				s := contributorStats[authorName]
+				s.Additions += commit.Stats.Additions
+				s.Deletions += commit.Stats.Deletions
+				s.Commits++
+				contributorStats[authorName] = s
 			}
 			mu.Unlock()
 		}(project)
@@ -363,7 +405,7 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[WARN] 完成代码量统计，成功 %d 个项目，失败 %d 个", len(projects)-failedCount, failedCount)
 	}
 
-	log.Printf("[DEBUG] GitLab 用户邮箱数: %d, 提交作者邮箱数: %d", len(emailToUser), len(commitAuthorEmails))
+	log.Printf("[DEBUG] GitLab 用户邮箱数: %d, 提交作者邮箱数: %d", len(emailToUser), len(commitEmails))
 
 	// 构建贡献者信息（带用户资料）
 	contributorList := make([]TopContributor, 0, len(contributorStats))
@@ -371,14 +413,11 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 		username := ""
 		profileURL := ""
 
-		// 通过邮箱查找用户信息
-		for email, name := range commitAuthorEmails {
-			if name == authorName {
-				if user, exists := emailToUser[email]; exists {
-					username = user.Username
-					profileURL = strings.TrimSuffix(h.config.GitLabURL, "/") + "/" + user.Username
-					break
-				}
+		// 通过邮箱查找用户信息（O(1) 查找）
+		if email, exists := authorToEmail[authorName]; exists {
+			if user, ok := emailToUser[email]; ok {
+				username = user.Username
+				profileURL = strings.TrimSuffix(h.config.GitLabURL, "/") + "/" + user.Username
 			}
 		}
 
@@ -398,7 +437,7 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 		hasCommit := false
 		if user.Email != "" {
 			normalizedEmail := strings.ToLower(user.Email)
-			if _, exists := commitAuthorEmails[normalizedEmail]; exists {
+			if commitEmails[normalizedEmail] {
 				hasCommit = true
 			}
 		}

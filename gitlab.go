@@ -100,7 +100,13 @@ func (gl *GitLabClient) request(endpoint string, params map[string]string) ([]by
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		if gl.logEnabled {
+			log.Printf("[ERROR] Read response failed: %v", err)
+		}
+		return nil, err
+	}
 
 	if gl.logEnabled && gl.logResponses {
 		respBody := string(body)
@@ -117,11 +123,8 @@ func (gl *GitLabClient) request(endpoint string, params map[string]string) ([]by
 		return nil, fmt.Errorf("GitLab API 错误: %d - %s", resp.StatusCode, string(body))
 	}
 
-	if err == nil {
-		gl.cache.Set(cacheKey, body)
-	}
-
-	return body, err
+	gl.cache.Set(cacheKey, body)
+	return body, nil
 }
 
 func (gl *GitLabClient) fetchAll(endpoint string, params map[string]string, parser func([]byte) (int, error)) error {

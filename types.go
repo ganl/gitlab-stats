@@ -69,7 +69,9 @@ type MergeRequest struct {
 	MergedAt  *time.Time `json:"merged_at"`
 	CreatedAt time.Time  `json:"created_at"`
 	Author    struct {
-		Name string `json:"name"`
+		ID       int    `json:"id"`
+		Name     string `json:"name"`
+		Username string `json:"username"`
 	} `json:"author"`
 }
 
@@ -95,8 +97,20 @@ type MRStatistics struct {
 	Merged      int                  `json:"merged"`
 	Opened      int                  `json:"opened"`
 	Closed      int                  `json:"closed"`
-	Authors     map[string]int       `json:"authors"`
-	MergedByDay map[string]int       `json:"merged_by_day"`
+	Authors     []MRAuthor           `json:"authors"`
+	MergedByDay []MergedByDay        `json:"merged_by_day"`
+}
+
+type MRAuthor struct {
+	Name       string `json:"name"`
+	Username   string `json:"username"`
+	ProfileURL string `json:"profile_url"`
+	Count      int    `json:"count"`
+}
+
+type MergedByDay struct {
+	Date  string `json:"date"`
+	Count int    `json:"count"`
 }
 
 type CodeVolume struct {
