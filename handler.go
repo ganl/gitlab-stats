@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -344,11 +345,44 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[WARN] 完成代码量统计，成功 %d 个项目，失败 %d 个", len(projects)-failedCount, failedCount)
 	}
 
+	// 构建规范化用户名映射（用于大小写不敏感匹配）
+	normalizedUsers := make(map[string]string)
 	for userName := range userNames {
-		if _, hasCommit := stats.TopContributors[userName]; !hasCommit {
+		normalized := strings.ToLower(strings.TrimSpace(userName))
+		normalizedUsers[normalized] = userName
+	}
+
+	log.Printf("[DEBUG] GitLab 用户数: %d, 提交作者数: %d", len(userNames), len(stats.TopContributors))
+
+	// 检查每个用户是否有提交（使用大小写不敏感匹配）
+	inactiveCount := 0
+	for userName := range userNames {
+		normalized := strings.ToLower(strings.TrimSpace(userName))
+		hasCommit := false
+
+		// 检查原始用户名
+		if _, ok := stats.TopContributors[userName]; ok {
+			hasCommit = true
+		}
+
+		// 检查规范化后的用户名
+		if !hasCommit {
+			for authorName := range stats.TopContributors {
+				normalizedAuthor := strings.ToLower(strings.TrimSpace(authorName))
+				if normalized == normalizedAuthor {
+					hasCommit = true
+					break
+				}
+			}
+		}
+
+		if !hasCommit {
+			inactiveCount++
 			stats.InactiveMembers = append(stats.InactiveMembers, userName)
 		}
 	}
+
+	log.Printf("[INFO] 零提交成员数: %d / %d", inactiveCount, len(userNames))
 	sort.Strings(stats.InactiveMembers)
 
 	type contributor struct {
