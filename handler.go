@@ -149,7 +149,7 @@ func (h *Handler) commitFrequencyHandler(w http.ResponseWriter, r *http.Request)
 		log.Printf("[WARN] 完成提交频率统计，成功 %d 个项目，失败 %d 个", len(projects)-failedCount, failedCount)
 	}
 
-	var result []CommitFrequency
+	result := make([]CommitFrequency, 0)
 	for date, count := range commitByPeriod {
 		result = append(result, CommitFrequency{Date: date, Count: count})
 	}
