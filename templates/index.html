@@ -377,9 +377,19 @@
         async function loadCommitFrequency() {
             const params = getParams();
             const response = await fetch(`/api/stats/commit-frequency?period=${params.period}&days=${params.days}`);
-            const data = await response.json();
 
-            if (data.error) throw new Error(data.error);
+            let data;
+            try {
+                data = await response.json();
+            } catch (e) {
+                throw new Error(`提交频率接口响应解析失败 (HTTP ${response.status})`);
+            }
+
+            if (!response.ok) {
+                throw new Error(data?.error || `提交频率接口请求失败 (HTTP ${response.status})`);
+            }
+
+            if (data && data.error) throw new Error(data.error);
 
             document.getElementById('total-commits').textContent =
                 data.reduce((sum, item) => sum + item.count, 0);
@@ -420,9 +430,19 @@
         async function loadMRStatistics() {
             const params = getParams();
             const response = await fetch(`/api/stats/mr-statistics?period=${params.period}&days=${params.days}`);
-            const data = await response.json();
 
-            if (data.error) throw new Error(data.error);
+            let data;
+            try {
+                data = await response.json();
+            } catch (e) {
+                throw new Error(`MR统计接口响应解析失败 (HTTP ${response.status})`);
+            }
+
+            if (!response.ok) {
+                throw new Error(data?.error || `MR统计接口请求失败 (HTTP ${response.status})`);
+            }
+
+            if (data && data.error) throw new Error(data.error);
 
             document.getElementById('total-mrs').textContent = data.total;
 
@@ -482,9 +502,19 @@
         async function loadCodeVolume() {
             const params = getParams();
             const response = await fetch(`/api/stats/code-volume?days=${params.days}`);
-            const data = await response.json();
 
-            if (data.error) throw new Error(data.error);
+            let data;
+            try {
+                data = await response.json();
+            } catch (e) {
+                throw new Error(`代码量统计接口响应解析失败 (HTTP ${response.status})`);
+            }
+
+            if (!response.ok) {
+                throw new Error(data?.error || `代码量统计接口请求失败 (HTTP ${response.status})`);
+            }
+
+            if (data && data.error) throw new Error(data.error);
 
             document.getElementById('total-additions').textContent = '+' + data.total_additions;
             document.getElementById('total-deletions').textContent = '-' + data.total_deletions;

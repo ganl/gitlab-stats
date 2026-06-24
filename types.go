@@ -47,6 +47,9 @@ type Config struct {
 	RequestTimeout  Duration `json:"request_timeout"`
 	CacheEnabled    bool     `json:"cache_enabled"`
 	CacheTTL        Duration `json:"cache_ttl"`
+	LogEnabled      bool     `json:"log_enabled"`
+	LogRequests     bool     `json:"log_requests"`
+	LogResponses    bool     `json:"log_responses"`
 }
 
 type Commit struct {

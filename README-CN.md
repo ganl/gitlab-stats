@@ -43,7 +43,10 @@ copy config.json.dist config.json
   "max_concurrent": 20,
   "request_timeout": "30s",
   "cache_enabled": true,
-  "cache_ttl": "5m"
+  "cache_ttl": "5m",
+  "log_enabled": false,
+  "log_requests": true,
+  "log_responses": false
 }
 ```
 
@@ -55,6 +58,9 @@ copy config.json.dist config.json
 - `request_timeout` - 单请求超时时间（默认 30s）
 - `cache_enabled` - 是否启用缓存（默认 true）
 - `cache_ttl` - 缓存过期时间（默认 5m）
+- `log_enabled` - 是否启用日志记录（默认 false）
+- `log_requests` - 是否记录请求详情（默认 true）
+- `log_responses` - 是否记录响应详情（默认 false）
 
 ### 获取 Token
 

@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -27,10 +28,13 @@ import (
 const defaultPerPage = 100
 
 type GitLabClient struct {
-	baseURL string
-	token   string
-	client  *http.Client
-	cache   *Cache
+	baseURL     string
+	token       string
+	client      *http.Client
+	cache       *Cache
+	logEnabled  bool
+	logRequests  bool
+	logResponses bool
 }
 
 func NewGitLabClient(cfg *Config, cache *Cache) *GitLabClient {
@@ -45,13 +49,19 @@ func NewGitLabClient(cfg *Config, cache *Cache) *GitLabClient {
 				IdleConnTimeout:     90 * time.Second,
 			},
 		},
-		cache: cache,
+		cache:        cache,
+		logEnabled:   cfg.LogEnabled,
+		logRequests:  cfg.LogRequests,
+		logResponses: cfg.LogResponses,
 	}
 }
 
 func (gl *GitLabClient) request(endpoint string, params map[string]string) ([]byte, error) {
 	cacheKey := "req:" + endpoint + fmt.Sprintf("%v", params)
 	if cached, found := gl.cache.Get(cacheKey); found {
+		if gl.logEnabled && gl.logRequests {
+			log.Printf("[CACHE HIT] %s %s", "GET", endpoint)
+		}
 		return cached.([]byte), nil
 	}
 
@@ -64,6 +74,16 @@ func (gl *GitLabClient) request(endpoint string, params map[string]string) ([]by
 		reqURL += "?" + q.Encode()
 	}
 
+	if gl.logEnabled && gl.logRequests {
+		maskToken := func(u string) string {
+			if len(u) > 20 {
+				return u[:20] + "***"
+			}
+			return u
+		}
+		log.Printf("[REQUEST] GET %s (params: %v, token: %s)", endpoint, params, maskToken(gl.token))
+	}
+
 	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
 		return nil, err
@@ -73,21 +93,35 @@ func (gl *GitLabClient) request(endpoint string, params map[string]string) ([]by
 
 	resp, err := gl.client.Do(req)
 	if err != nil {
+		if gl.logEnabled {
+			log.Printf("[ERROR] Request failed: %v", err)
+		}
 		return nil, err
 	}
 	defer resp.Body.Close()
 
+	body, _ := io.ReadAll(resp.Body)
+
+	if gl.logEnabled && gl.logResponses {
+		respBody := string(body)
+		if len(respBody) > 500 {
+			respBody = respBody[:500] + "...(truncated)"
+		}
+		log.Printf("[RESPONSE] %s - Status: %d, Body: %s", endpoint, resp.StatusCode, respBody)
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		if gl.logEnabled {
+			log.Printf("[ERROR] GitLab API error: %d - %s", resp.StatusCode, string(body))
+		}
 		return nil, fmt.Errorf("GitLab API 错误: %d - %s", resp.StatusCode, string(body))
 	}
 
-	data, err := io.ReadAll(resp.Body)
 	if err == nil {
-		gl.cache.Set(cacheKey, data)
+		gl.cache.Set(cacheKey, body)
 	}
 
-	return data, err
+	return body, err
 }
 
 func (gl *GitLabClient) fetchAll(endpoint string, params map[string]string, parser func([]byte) (int, error)) error {
