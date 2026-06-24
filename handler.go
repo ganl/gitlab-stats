@@ -271,7 +271,7 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 	startDate := endDate.AddDate(0, 0, -days)
 
 	stats := CodeVolume{
-		TopContributors: make(map[string]ContributorStats),
+		TopContributors: []TopContributor{},
 		InactiveMembers: []InactiveMember{},
 	}
 
@@ -284,14 +284,15 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[INFO] 找到 %d 个用户", len(allUsers))
 
-	// 收集用户邮箱集合（用于判断零提交）
-	userEmails := make(map[string]bool)
+	// 构建邮箱 -> 用户信息的映射（大小写不敏感）
+	emailToUser := make(map[string]GitLabUser)
 	for _, user := range allUsers {
 		if user.Email != "" {
-			userEmails[strings.ToLower(user.Email)] = true
+			normalizedEmail := strings.ToLower(user.Email)
+			emailToUser[normalizedEmail] = user
 		}
 	}
-	log.Printf("[DEBUG] 有邮箱的用户数: %d", len(userEmails))
+	log.Printf("[DEBUG] 有邮箱的用户数: %d", len(emailToUser))
 
 	projects, err := h.gl.GetAllProjects()
 	if err != nil {
@@ -302,6 +303,8 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[INFO] 找到 %d 个项目，开始获取代码量数据...", len(projects))
 
+	// 临时存储贡献者统计
+	contributorStats := make(map[string]*ContributorStats)
 	// 收集提交者的邮箱（用于匹配用户）
 	commitAuthorEmails := make(map[string]string) // email -> author name
 	var mu sync.Mutex
@@ -330,26 +333,25 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 				stats.TotalAdditions += commit.Stats.Additions
 				stats.TotalDeletions += commit.Stats.Deletions
 
-				// 用邮箱作为 key，如果邮箱为空则用名字
-				key := commit.AuthorEmail
-				if key == "" {
-					key = commit.AuthorName
-					if key == "" {
-						key = "Unknown"
-					}
+				authorName := commit.AuthorName
+				if authorName == "" {
+					authorName = "Unknown"
 				}
 
 				// 收集提交者邮箱映射
-				normalizedEmail := strings.ToLower(key)
-				if _, exists := commitAuthorEmails[normalizedEmail]; !exists {
-					commitAuthorEmails[normalizedEmail] = commit.AuthorName
+				if commit.AuthorEmail != "" {
+					normalizedEmail := strings.ToLower(commit.AuthorEmail)
+					if _, exists := commitAuthorEmails[normalizedEmail]; !exists {
+						commitAuthorEmails[normalizedEmail] = authorName
+					}
 				}
 
-				s := stats.TopContributors[commit.AuthorName]
-				s.Additions += commit.Stats.Additions
-				s.Deletions += commit.Stats.Deletions
-				s.Commits++
-				stats.TopContributors[commit.AuthorName] = s
+				if _, exists := contributorStats[authorName]; !exists {
+					contributorStats[authorName] = &ContributorStats{}
+				}
+				contributorStats[authorName].Additions += commit.Stats.Additions
+				contributorStats[authorName].Deletions += commit.Stats.Deletions
+				contributorStats[authorName].Commits++
 			}
 			mu.Unlock()
 		}(project)
@@ -361,7 +363,34 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[WARN] 完成代码量统计，成功 %d 个项目，失败 %d 个", len(projects)-failedCount, failedCount)
 	}
 
-	log.Printf("[DEBUG] GitLab 用户邮箱数: %d, 提交作者邮箱数: %d", len(userEmails), len(commitAuthorEmails))
+	log.Printf("[DEBUG] GitLab 用户邮箱数: %d, 提交作者邮箱数: %d", len(emailToUser), len(commitAuthorEmails))
+
+	// 构建贡献者信息（带用户资料）
+	contributorList := make([]TopContributor, 0, len(contributorStats))
+	for authorName, authorStats := range contributorStats {
+		username := ""
+		profileURL := ""
+
+		// 通过邮箱查找用户信息
+		for email, name := range commitAuthorEmails {
+			if name == authorName {
+				if user, exists := emailToUser[email]; exists {
+					username = user.Username
+					profileURL = strings.TrimSuffix(h.config.GitLabURL, "/") + "/" + user.Username
+					break
+				}
+			}
+		}
+
+		contributorList = append(contributorList, TopContributor{
+			Name:       authorName,
+			Username:   username,
+			ProfileURL: profileURL,
+			Additions:  authorStats.Additions,
+			Deletions:  authorStats.Deletions,
+			Commits:    authorStats.Commits,
+		})
+	}
 
 	// 用邮箱匹配用户：检查每个用户的邮箱是否在提交者邮箱中
 	inactiveCount := 0
@@ -391,26 +420,16 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 		return stats.InactiveMembers[i].Name < stats.InactiveMembers[j].Name
 	})
 
-	type contributor struct {
-		Name  string
-		Stats ContributorStats
-	}
-	contributors := make([]contributor, 0, len(stats.TopContributors))
-	for name, stats := range stats.TopContributors {
-		contributors = append(contributors, contributor{Name: name, Stats: stats})
-	}
-	sort.Slice(contributors, func(i, j int) bool {
-		return contributors[i].Stats.Commits > contributors[j].Stats.Commits
+	// 按提交数排序贡献者
+	sort.Slice(contributorList, func(i, j int) bool {
+		return contributorList[i].Commits > contributorList[j].Commits
 	})
 
-	topContributors := make(map[string]ContributorStats)
-	for i, c := range contributors {
-		if i >= 10 {
-			break
-		}
-		topContributors[c.Name] = c.Stats
+	// 只保留前 10 名
+	if len(contributorList) > 10 {
+		contributorList = contributorList[:10]
 	}
-	stats.TopContributors = topContributors
+	stats.TopContributors = contributorList
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)

@@ -103,8 +103,17 @@ type CodeVolume struct {
 	TotalAdditions   int                      `json:"total_additions"`
 	TotalDeletions   int                      `json:"total_deletions"`
 	TotalCommits     int                      `json:"total_commits"`
-	TopContributors map[string]ContributorStats `json:"top_contributors"`
+	TopContributors []TopContributor      `json:"top_contributors"`
 	InactiveMembers []InactiveMember      `json:"inactive_members"`
+}
+
+type TopContributor struct {
+	Name       string           `json:"name"`
+	Username   string           `json:"username"`
+	ProfileURL string           `json:"profile_url"`
+	Additions  int              `json:"additions"`
+	Deletions  int              `json:"deletions"`
+	Commits    int              `json:"commits"`
 }
 
 type InactiveMember struct {

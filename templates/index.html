@@ -519,10 +519,10 @@
             document.getElementById('total-additions').textContent = '+' + data.total_additions;
             document.getElementById('total-deletions').textContent = '-' + data.total_deletions;
 
-            const contributors = Object.entries(data.top_contributors);
-            const names = contributors.map(([name]) => name.length > 15 ? name.substring(0, 15) + '...' : name);
-            const additions = contributors.map(([, stats]) => stats.additions);
-            const deletions = contributors.map(([, stats]) => stats.deletions);
+            const contributors = data.top_contributors || [];
+            const names = contributors.map(c => c.name.length > 15 ? c.name.substring(0, 15) + '...' : c.name);
+            const additions = contributors.map(c => c.additions);
+            const deletions = contributors.map(c => c.deletions);
 
             if (contributorsChart) contributorsChart.destroy();
 
@@ -565,13 +565,15 @@
             });
 
             const detailsContainer = document.getElementById('contributors-details');
-            detailsContainer.innerHTML = contributors.map(([name, stats]) => `
+            detailsContainer.innerHTML = contributors.map(c => `
                 <div class="contributor-item">
-                    <span class="contributor-name">${name}</span>
+                    <span class="contributor-name">
+                        ${c.profile_url ? `<a href="${c.profile_url}" target="_blank" style="color: inherit; text-decoration: none;">${c.name}${c.username ? ` <span style="opacity: 0.6; font-size: 0.85em;">(@${c.username})</span>` : ''}</a>` : c.name}
+                    </span>
                     <div class="contributor-stats">
-                        <span class="commits">📝 ${stats.commits}</span>
-                        <span class="additions">+${stats.additions}</span>
-                        <span class="deletions">-${stats.deletions}</span>
+                        <span class="commits">📝 ${c.commits}</span>
+                        <span class="additions">+${c.additions}</span>
+                        <span class="deletions">-${c.deletions}</span>
                     </div>
                 </div>
             `).join('');
