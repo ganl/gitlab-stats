@@ -53,10 +53,11 @@ type Config struct {
 }
 
 type Commit struct {
-	ID         string    `json:"id"`
-	CreatedAt  time.Time `json:"created_at"`
-	AuthorName string    `json:"author_name"`
-	Stats      struct {
+	ID          string    `json:"id"`
+	CreatedAt   time.Time `json:"created_at"`
+	AuthorName  string    `json:"author_name"`
+	AuthorEmail string    `json:"author_email"`
+	Stats       struct {
 		Additions int `json:"additions"`
 		Deletions int `json:"deletions"`
 	} `json:"stats"`
@@ -81,6 +82,7 @@ type GitLabUser struct {
 	ID       int    `json:"id"`
 	Name     string `json:"name"`
 	Username string `json:"username"`
+	Email    string `json:"email"`
 }
 
 type CommitFrequency struct {

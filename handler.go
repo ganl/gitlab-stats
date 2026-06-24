@@ -284,10 +284,14 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[INFO] 找到 %d 个用户", len(allUsers))
 
-	userNames := make(map[string]bool)
+	// 收集用户邮箱集合（用于判断零提交）
+	userEmails := make(map[string]bool)
 	for _, user := range allUsers {
-		userNames[user.Name] = true
+		if user.Email != "" {
+			userEmails[strings.ToLower(user.Email)] = true
+		}
 	}
+	log.Printf("[DEBUG] 有邮箱的用户数: %d", len(userEmails))
 
 	projects, err := h.gl.GetAllProjects()
 	if err != nil {
@@ -298,6 +302,8 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[INFO] 找到 %d 个项目，开始获取代码量数据...", len(projects))
 
+	// 收集提交者的邮箱（用于匹配用户）
+	commitAuthorEmails := make(map[string]string) // email -> author name
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, h.config.MaxConcurrent)
@@ -324,16 +330,26 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 				stats.TotalAdditions += commit.Stats.Additions
 				stats.TotalDeletions += commit.Stats.Deletions
 
-				author := commit.AuthorName
-				if author == "" {
-					author = "Unknown"
+				// 用邮箱作为 key，如果邮箱为空则用名字
+				key := commit.AuthorEmail
+				if key == "" {
+					key = commit.AuthorName
+					if key == "" {
+						key = "Unknown"
+					}
 				}
 
-				s := stats.TopContributors[author]
+				// 收集提交者邮箱映射
+				normalizedEmail := strings.ToLower(key)
+				if _, exists := commitAuthorEmails[normalizedEmail]; !exists {
+					commitAuthorEmails[normalizedEmail] = commit.AuthorName
+				}
+
+				s := stats.TopContributors[commit.AuthorName]
 				s.Additions += commit.Stats.Additions
 				s.Deletions += commit.Stats.Deletions
 				s.Commits++
-				stats.TopContributors[author] = s
+				stats.TopContributors[commit.AuthorName] = s
 			}
 			mu.Unlock()
 		}(project)
@@ -345,44 +361,27 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[WARN] 完成代码量统计，成功 %d 个项目，失败 %d 个", len(projects)-failedCount, failedCount)
 	}
 
-	// 构建规范化用户名映射（用于大小写不敏感匹配）
-	normalizedUsers := make(map[string]string)
-	for userName := range userNames {
-		normalized := strings.ToLower(strings.TrimSpace(userName))
-		normalizedUsers[normalized] = userName
-	}
+	log.Printf("[DEBUG] GitLab 用户邮箱数: %d, 提交作者邮箱数: %d", len(userEmails), len(commitAuthorEmails))
 
-	log.Printf("[DEBUG] GitLab 用户数: %d, 提交作者数: %d", len(userNames), len(stats.TopContributors))
-
-	// 检查每个用户是否有提交（使用大小写不敏感匹配）
+	// 用邮箱匹配用户：检查每个用户的邮箱是否在提交者邮箱中
 	inactiveCount := 0
-	for userName := range userNames {
-		normalized := strings.ToLower(strings.TrimSpace(userName))
+	for _, user := range allUsers {
 		hasCommit := false
-
-		// 检查原始用户名
-		if _, ok := stats.TopContributors[userName]; ok {
-			hasCommit = true
-		}
-
-		// 检查规范化后的用户名
-		if !hasCommit {
-			for authorName := range stats.TopContributors {
-				normalizedAuthor := strings.ToLower(strings.TrimSpace(authorName))
-				if normalized == normalizedAuthor {
-					hasCommit = true
-					break
-				}
+		if user.Email != "" {
+			normalizedEmail := strings.ToLower(user.Email)
+			if _, exists := commitAuthorEmails[normalizedEmail]; exists {
+				hasCommit = true
 			}
 		}
 
 		if !hasCommit {
 			inactiveCount++
-			stats.InactiveMembers = append(stats.InactiveMembers, userName)
+			stats.InactiveMembers = append(stats.InactiveMembers, user.Name)
+			log.Printf("[DEBUG] 零提交成员: %s (邮箱: %s)", user.Name, user.Email)
 		}
 	}
 
-	log.Printf("[INFO] 零提交成员数: %d / %d", inactiveCount, len(userNames))
+	log.Printf("[INFO] 零提交成员数: %d / %d", inactiveCount, len(allUsers))
 	sort.Strings(stats.InactiveMembers)
 
 	type contributor struct {
