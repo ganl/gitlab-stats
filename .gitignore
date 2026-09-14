@@ -5,6 +5,9 @@
 *.so
 *.dylib
 
+# Archives (local snapshots of the repo, not part of the source tree)
+*.7z
+
 # Test binary, built with `go test -c`
 *.test
 
@@ -13,6 +16,12 @@
 
 # Dependency directories
 vendor/
+
+# 例外：static/ 下内嵌的前端第三方库必须入库。
+# 它们由 go:embed 编进二进制（见 main.go 的 staticFS），
+# 若被忽略，clone 后编译会因找不到 embed 目标而失败。
+!static/vendor/
+!static/vendor/**
 
 # Go workspace file
 go.work
@@ -26,3 +35,9 @@ go.work
 
 # Config file with secrets
 config.json
+
+# Runtime data (statistics snapshots & job state)
+data/
+
+# Local assistant workspace
+.workbuddy/

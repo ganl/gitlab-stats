@@ -32,6 +32,7 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
 	}
 
+	// 先补齐默认值再校验，否则未配置的字段（如 stats_cron）会被误判为非法。
 	cfg.SetDefaults()
 
 	if err := cfg.Validate(); err != nil {
@@ -56,6 +57,18 @@ func (c *Config) Validate() error {
 
 	if c.MaxConcurrent < 1 || c.MaxConcurrent > 100 {
 		return fmt.Errorf("max_concurrent 必须在 1 到 100 之间")
+	}
+
+	// 定时统计开启时，cron 表达式必须可用，否则启动即失败而非静默降级。
+	// 直接调用 Validate（未先走 SetDefaults）时按默认表达式校验，避免误报。
+	if c.StatsEnabledOrDefault() {
+		expr := c.StatsCron
+		if expr == "" {
+			expr = DefaultStatsCron
+		}
+		if _, err := ParseCron(expr); err != nil {
+			return fmt.Errorf("stats_cron 配置无效: %w", err)
+		}
 	}
 
 	return nil

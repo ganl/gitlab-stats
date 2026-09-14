@@ -8,5 +8,15 @@
   "cache_ttl": "5m",
   "log_enabled": false,
   "log_requests": true,
-  "log_responses": false
+  "log_responses": false,
+  "data_dir": "data",
+  "stats_enabled": true,
+  "stats_cron": "0 2 * * *",
+  "stats_on_start": true,
+  "stats_timeout": "30m",
+  "scan_all_branches": true,
+  "refresh_overlap_days": 30,
+  "backfill_chunk_days": 30,
+  "exclude_authors": [],
+  "exempt_from_inactive": []
 }

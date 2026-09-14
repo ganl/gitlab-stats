@@ -4,258 +4,859 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GitLab 统计面板</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <!-- Chart.js 由服务端内嵌提供，不依赖外网 CDN：内网离线环境同样可用 -->
+    <script src="/static/vendor/chart.umd.min.js"></script>
     <style>
+        /* ==================================================================
+           设计令牌（Design Tokens）
+           全部视觉决策集中在此处，改主题只需改这一段。
+           ================================================================== */
+        :root {
+            /* 层级背景：越靠前越"远"，用于制造空间纵深感 */
+            --bg-base: #0d1020;
+            --surface-1: #1a2038;
+            --surface-2: #212842;
+            --surface-inset: #0c1024;
+
+            /* 描边 */
+            --border-subtle: rgba(255, 255, 255, 0.06);
+            --border-default: rgba(255, 255, 255, 0.10);
+            --border-strong: rgba(255, 255, 255, 0.18);
+
+            /* 文字层级 */
+            --text-primary: #eef2ff;
+            --text-secondary: #a3adcc;
+            --text-muted: #6b7794;
+
+            /* 品牌与语义色 */
+            --brand-1: #7c8cf8;
+            --brand-2: #a855f7;
+            --brand-soft: rgba(124, 140, 248, 0.14);
+            --accent-cyan: #22d3ee;
+            --accent-green: #34d399;
+            --accent-red: #fb7185;
+            --accent-amber: #fbbf24;
+
+            /* 图表统一配色 */
+            --chart-commit: #7c8cf8;
+            --chart-additions: #34d399;
+            --chart-deletions: #fb7185;
+            --chart-mr-merged: #34d399;
+            --chart-mr-opened: #60a5fa;
+            --chart-mr-closed: #fb7185;
+
+            /* 圆角节奏 */
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-xl: 22px;
+
+            /* 阴影：深色背景下用"多层投影 + 内高光"制造卡片浮起感 */
+            --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
+            --shadow-lg: 0 14px 40px rgba(0, 0, 0, 0.45);
+
+            /* 节拍 */
+            --gap-sm: 12px;
+            --gap-md: 20px;
+            --gap-lg: 28px;
+            --gap-xl: 40px;
+
+            --ease: cubic-bezier(0.4, 0, 0.2, 1);
+            --dur: 0.22s;
+        }
+
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: #1a1a2e;
-            color: #eee;
-            min-height: 100vh;
+        html {
+            /* 数据密集页面：数字统一等宽，避免跳动 */
+            -webkit-text-size-adjust: 100%;
         }
 
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+                         'Hiragino Sans GB', 'Microsoft YaHei', Roboto, 'Helvetica Neue',
+                         Arial, sans-serif;
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            /* 顶部叠一层品牌色极光，让深色底不那么死板 */
+            background:
+                radial-gradient(1200px 480px at 15% -10%, rgba(124, 140, 248, 0.16), transparent 60%),
+                radial-gradient(1000px 420px at 88% 0%, rgba(168, 85, 247, 0.12), transparent 62%),
+                var(--bg-base);
+            background-attachment: fixed;
+        }
+
+        /* 滚动条与主题统一 */
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.14);
+            border-radius: 999px;
+            border: 2px solid transparent;
+            background-clip: content-box;
+        }
+        ::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, 0.26); }
+
+        /* ==================================================================
+           顶部区域
+           ================================================================== */
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 30px;
+            position: relative;
+            overflow: hidden;
+            padding: 44px 30px 38px;
             text-align: center;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            border-bottom: 1px solid var(--border-subtle);
+            background:
+                linear-gradient(180deg, rgba(124, 140, 248, 0.20) 0%, rgba(168, 85, 247, 0.07) 45%, transparent 100%),
+                linear-gradient(135deg, #1b2145 0%, #161a34 100%);
+        }
+
+        /* 头部下方的品牌色光带，替代原来厚重的紫色渐变块 */
+        .header::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--brand-1), var(--brand-2), transparent);
+            opacity: 0.9;
         }
 
         .header h1 {
-            font-size: 2.5rem;
+            font-size: clamp(1.6rem, 3.4vw, 2.25rem);
+            font-weight: 700;
+            letter-spacing: -0.02em;
             margin-bottom: 10px;
+            background: linear-gradient(120deg, #ffffff 0%, #c7d0ff 55%, #e9d5ff 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
 
         .header p {
-            opacity: 0.9;
-            font-size: 1.1rem;
+            color: var(--text-secondary);
+            font-size: 0.98rem;
         }
 
         .controls {
             display: flex;
             justify-content: center;
-            gap: 20px;
+            align-items: center;
+            gap: var(--gap-md);
             flex-wrap: wrap;
-            margin-top: 20px;
+            margin-top: 26px;
         }
 
         .control-group {
             display: flex;
             align-items: center;
             gap: 10px;
+            padding: 6px 8px 6px 14px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-subtle);
+            border-radius: 999px;
+            transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+        }
+
+        .control-group:hover {
+            border-color: var(--border-default);
+            background: rgba(255, 255, 255, 0.06);
         }
 
         .control-group label {
-            font-size: 0.95rem;
+            font-size: 0.88rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
         }
 
         .control-group select {
-            padding: 8px 16px;
-            border-radius: 8px;
-            border: none;
-            background: rgba(255,255,255,0.2);
-            color: white;
-            font-size: 1rem;
+            padding: 7px 12px;
+            border-radius: 999px;
+            border: 1px solid transparent;
+            background: rgba(255, 255, 255, 0.07);
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            font-family: inherit;
             cursor: pointer;
+            outline: none;
+            transition: all var(--dur) var(--ease);
+        }
+
+        .control-group select:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .control-group select:focus-visible {
+            border-color: var(--brand-1);
+            box-shadow: 0 0 0 3px var(--brand-soft);
         }
 
         .control-group select option {
-            color: #333;
+            background: #1a2038;
+            color: var(--text-primary);
         }
 
+        /* ==================================================================
+           主体容器与栅格
+           ================================================================== */
         .container {
-            max-width: 1400px;
+            max-width: 1440px;
             margin: 0 auto;
-            padding: 30px;
+            padding: var(--gap-xl) 30px 60px;
         }
 
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 25px;
-            margin-bottom: 40px;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: var(--gap-md);
+            margin-bottom: var(--gap-lg);
         }
 
+        /* ==================================================================
+           指标卡
+           ================================================================== */
         .stat-card {
-            background: #16213e;
-            border-radius: 16px;
-            padding: 30px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-            transition: transform 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            padding: 24px 26px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-subtle);
+            background: linear-gradient(160deg, var(--surface-2) 0%, var(--surface-1) 100%);
+            box-shadow: var(--shadow-md);
+            transition: transform var(--dur) var(--ease),
+                        border-color var(--dur) var(--ease),
+                        box-shadow var(--dur) var(--ease);
+        }
+
+        /* 顶部一条细高光，卡片的"受光面" */
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+        }
+
+        /* 右侧渐变光晕，hover 时增强 */
+        .stat-card::after {
+            content: '';
+            position: absolute;
+            top: -60%;
+            right: -20%;
+            width: 220px;
+            height: 220px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(124, 140, 248, 0.20), transparent 68%);
+            opacity: 0.7;
+            transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+            pointer-events: none;
         }
 
         .stat-card:hover {
-            transform: translateY(-5px);
+            transform: translateY(-4px);
+            border-color: var(--border-default);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .stat-card:hover::after {
+            opacity: 1;
+            transform: scale(1.12);
         }
 
         .stat-card h3 {
-            color: #667eea;
-            font-size: 0.9rem;
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-secondary);
+            font-size: 0.76rem;
+            font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 15px;
+            letter-spacing: 0.09em;
+            margin-bottom: 14px;
+        }
+
+        .stat-card h3::before {
+            content: '';
+            width: 3px;
+            height: 13px;
+            border-radius: 2px;
+            background: linear-gradient(180deg, var(--brand-1), var(--brand-2));
+            flex: none;
         }
 
         .stat-card .value {
-            font-size: 2.8rem;
-            font-weight: bold;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            position: relative;
+            z-index: 1;
+            font-size: clamp(1.9rem, 3.2vw, 2.6rem);
+            font-weight: 700;
+            line-height: 1.12;
+            letter-spacing: -0.025em;
+            font-variant-numeric: tabular-nums;
+            background: linear-gradient(120deg, #ffffff 0%, #b9c4ff 100%);
             -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
             background-clip: text;
+            -webkit-text-fill-color: transparent;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .stat-card .label {
-            color: #888;
-            margin-top: 10px;
-            font-size: 0.9rem;
+            position: relative;
+            z-index: 1;
+            color: var(--text-muted);
+            margin-top: 8px;
+            font-size: 0.84rem;
         }
 
+        /* 四张卡各自的主题色：通过 h3 指示条与光晕区分 */
+        .stats-grid .stat-card:nth-child(1) .value {
+            background: linear-gradient(120deg, #ffffff 0%, #c3ccff 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .stats-grid .stat-card:nth-child(2) h3::before { background: linear-gradient(180deg, var(--accent-green), #10b981); }
+        .stats-grid .stat-card:nth-child(2)::after { background: radial-gradient(circle, rgba(52, 211, 153, 0.18), transparent 68%); }
+        .stats-grid .stat-card:nth-child(3) h3::before { background: linear-gradient(180deg, var(--accent-red), #e11d48); }
+        .stats-grid .stat-card:nth-child(3)::after { background: radial-gradient(circle, rgba(251, 113, 133, 0.18), transparent 68%); }
+        .stats-grid .stat-card:nth-child(4) h3::before { background: linear-gradient(180deg, var(--accent-cyan), #0ea5e9); }
+        .stats-grid .stat-card:nth-child(4)::after { background: radial-gradient(circle, rgba(34, 211, 238, 0.18), transparent 68%); }
+
+        /* ==================================================================
+           图表卡片
+           ================================================================== */
         .chart-container {
-            background: #16213e;
-            border-radius: 16px;
-            padding: 30px;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            position: relative;
+            padding: 24px 26px 22px;
+            margin-bottom: var(--gap-md);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-subtle);
+            background: var(--surface-1);
+            box-shadow: var(--shadow-md);
+            transition: border-color var(--dur) var(--ease);
+        }
+
+        .chart-container:hover {
+            border-color: var(--border-default);
         }
 
         .chart-container h2 {
-            margin-bottom: 25px;
-            color: #fff;
-            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding-bottom: 14px;
+            color: var(--text-primary);
+            font-size: 1.02rem;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+            border-bottom: 1px solid var(--border-subtle);
         }
 
         .chart-wrapper {
             position: relative;
-            height: 350px;
+            height: 340px;
         }
 
+        @media (max-width: 640px) {
+            .chart-wrapper { height: 280px; }
+        }
+
+        /* ==================================================================
+           双栏：贡献排行图 + Top 贡献者列表
+           ================================================================== */
         .two-columns {
             display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 30px;
+            grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+            gap: var(--gap-md);
         }
 
-        @media (max-width: 1024px) {
+        .two-columns > .chart-container {
+            margin-bottom: 0;
+        }
+
+        @media (max-width: 1100px) {
             .two-columns {
                 grid-template-columns: 1fr;
+            }
+            .two-columns > .chart-container {
+                margin-bottom: var(--gap-md);
             }
         }
 
         .contributors-list {
-            background: #16213e;
-            border-radius: 16px;
-            padding: 30px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+            padding: 24px 26px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-subtle);
+            background: var(--surface-1);
+            box-shadow: var(--shadow-md);
         }
 
         .contributors-list h2 {
-            margin-bottom: 20px;
-            color: #fff;
-            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 18px;
+            padding-bottom: 14px;
+            color: var(--text-primary);
+            font-size: 1.02rem;
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-subtle);
         }
 
         .contributor-item {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 15px 0;
-            border-bottom: 1px solid #2a2a4a;
+            gap: 14px;
+            padding: 11px 12px;
+            margin: 0 -12px;
+            border-radius: var(--radius-sm);
+            border-bottom: 1px solid var(--border-subtle);
+            transition: background var(--dur) var(--ease);
         }
 
         .contributor-item:last-child {
             border-bottom: none;
         }
 
+        .contributor-item:hover {
+            background: rgba(255, 255, 255, 0.04);
+        }
+
         .contributor-name {
             font-weight: 500;
+            font-size: 0.92rem;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .contributor-name a {
+            color: inherit;
+            text-decoration: none;
+            transition: color var(--dur) var(--ease);
+        }
+
+        .contributor-name a:hover {
+            color: var(--brand-1);
         }
 
         .contributor-stats {
             display: flex;
-            gap: 20px;
-            font-size: 0.9rem;
+            gap: 14px;
+            flex: none;
+            font-size: 0.84rem;
+            font-variant-numeric: tabular-nums;
         }
 
-        .additions {
-            color: #4ade80;
-        }
+        .additions { color: var(--accent-green); }
+        .deletions { color: var(--accent-red); }
+        .commits   { color: var(--chart-commit); }
 
-        .deletions {
-            color: #f87171;
-        }
-
-        .commits {
-            color: #60a5fa;
-        }
-
+        /* ==================================================================
+           未参与成员
+           ================================================================== */
         .inactive-list {
-            background: #16213e;
-            border-radius: 16px;
-            padding: 30px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            margin-top: var(--gap-md);
+            padding: 24px 26px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-subtle);
+            border-left: 3px solid var(--accent-amber);
+            background: var(--surface-1);
+            box-shadow: var(--shadow-md);
         }
 
         .inactive-list h2 {
-            margin-bottom: 20px;
-            color: #f87171;
-            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+            padding-bottom: 14px;
+            color: var(--accent-amber);
+            font-size: 1.02rem;
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .inactive-hint {
+            margin: -6px 0 12px;
+            font-size: 0.82rem;
+            color: var(--text-muted);
         }
 
         .inactive-item {
-            padding: 12px 0;
-            border-bottom: 1px solid #2a2a4a;
-            color: #888;
+            padding: 10px 12px;
+            margin: 0 -12px;
+            border-radius: var(--radius-sm);
+            border-bottom: 1px solid var(--border-subtle);
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+        }
+
+        .inactive-item:hover {
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-secondary);
         }
 
         .inactive-item:last-child {
             border-bottom: none;
         }
 
+        .inactive-item a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        /* ==================================================================
+           状态：加载 / 错误
+           ================================================================== */
         .loading {
             text-align: center;
             padding: 50px;
-            color: #888;
+            color: var(--text-muted);
         }
 
         .error {
-            background: #7f1d1d;
-            color: #fca5a5;
-            padding: 20px;
-            border-radius: 10px;
-            margin: 20px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin: 0 0 var(--gap-md);
+            padding: 16px 22px;
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(251, 113, 133, 0.35);
+            background: rgba(251, 113, 133, 0.10);
+            color: #ffc9d2;
+            font-size: 0.92rem;
             text-align: center;
         }
 
-        .refresh-btn {
-            background: rgba(255,255,255,0.2);
-            border: 1px solid rgba(255,255,255,0.3);
-            color: white;
-            padding: 10px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 1rem;
-            transition: all 0.3s;
+        .error button {
+            margin-top: 12px;
         }
 
-        .refresh-btn:hover {
-            background: rgba(255,255,255,0.3);
+        /* ==================================================================
+           按钮
+           ================================================================== */
+        .refresh-btn {
+            padding: 10px 22px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: linear-gradient(135deg, var(--brand-1) 0%, var(--brand-2) 100%);
+            color: #fff;
+            font-family: inherit;
+            font-size: 0.92rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 6px 18px rgba(124, 140, 248, 0.28);
+            transition: transform var(--dur) var(--ease),
+                        box-shadow var(--dur) var(--ease),
+                        filter var(--dur) var(--ease);
+        }
+
+        .refresh-btn:hover:not(:disabled) {
+            transform: translateY(-1px);
+            filter: brightness(1.08);
+            box-shadow: 0 10px 26px rgba(124, 140, 248, 0.38);
+        }
+
+        .refresh-btn:active:not(:disabled) {
+            transform: translateY(0);
+            box-shadow: 0 4px 12px rgba(124, 140, 248, 0.28);
+        }
+
+        .refresh-btn:disabled {
+            filter: grayscale(0.45);
+            opacity: 0.45;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .btn-secondary {
+            padding: 7px 15px;
+            border-radius: 999px;
+            border: 1px solid var(--border-default);
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 0.84rem;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all var(--dur) var(--ease);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.10);
+            border-color: var(--border-strong);
+            color: var(--text-primary);
+        }
+
+        .btn-secondary:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* ==================================================================
+           数据新鲜度 / 快照状态条
+           ================================================================== */
+        .snapshot-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: var(--gap-md);
+            flex-wrap: wrap;
+            padding: 14px 20px;
+            margin-bottom: var(--gap-md);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-subtle);
+            border-left: 3px solid var(--brand-1);
+            background: linear-gradient(100deg, rgba(124, 140, 248, 0.09), rgba(255, 255, 255, 0.02));
+            font-size: 0.86rem;
+        }
+
+        .snapshot-bar.stale {
+            border-left-color: var(--accent-amber);
+            background: linear-gradient(100deg, rgba(251, 191, 36, 0.10), rgba(255, 255, 255, 0.02));
+        }
+
+        .snapshot-meta {
+            display: flex;
+            align-items: center;
+            gap: 10px 22px;
+            flex-wrap: wrap;
+            color: var(--text-secondary);
+        }
+
+        /* 每项元数据之间加一个淡分隔点，代替生硬的空格堆叠 */
+        .snapshot-meta > span {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--gap-sm);
+        }
+
+        .snapshot-meta > span + span::before {
+            content: '';
+            width: 3px;
+            height: 3px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            opacity: 0.6;
+            margin-right: 16px;
+        }
+
+        .snapshot-meta strong {
+            color: var(--text-primary);
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .snapshot-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* ==================================================================
+           统计任务进度
+           ================================================================== */
+        .progress-panel {
+            padding: 20px 24px;
+            margin-bottom: var(--gap-md);
+            border-radius: var(--radius-lg);
+            border: 1px solid rgba(124, 140, 248, 0.24);
+            background: linear-gradient(160deg, rgba(124, 140, 248, 0.10), var(--surface-1) 60%);
+            box-shadow: var(--shadow-md);
+        }
+
+        .progress-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 14px;
+        }
+
+        .progress-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.98rem;
+            font-weight: 600;
+        }
+
+        .progress-percent {
+            font-variant-numeric: tabular-nums;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #b6c1ff;
+        }
+
+        .progress-track {
+            position: relative;
+            height: 8px;
+            border-radius: 999px;
+            background: var(--surface-inset);
+            overflow: hidden;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+        }
+
+        .progress-fill {
+            position: relative;
+            height: 100%;
+            width: 0;
+            border-radius: 999px;
+            background: linear-gradient(90deg, var(--brand-1) 0%, var(--brand-2) 100%);
+            box-shadow: 0 0 14px rgba(124, 140, 248, 0.55);
+            transition: width 0.45s var(--ease);
+        }
+
+        /* 进度条上的流光，表示"仍在推进" */
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            overflow: hidden;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+            animation: shimmer 1.6s linear infinite;
+        }
+
+        @keyframes shimmer {
+            from { transform: translateX(-100%); }
+            to   { transform: translateX(100%); }
+        }
+
+        .progress-panel.failed {
+            border-color: rgba(251, 113, 133, 0.30);
+            background: linear-gradient(160deg, rgba(251, 113, 133, 0.10), var(--surface-1) 60%);
+        }
+
+        .progress-panel.failed .progress-fill {
+            background: linear-gradient(90deg, #b91c1c 0%, var(--accent-red) 100%);
+            box-shadow: 0 0 14px rgba(251, 113, 133, 0.45);
+        }
+
+        .progress-sub {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-top: 12px;
+            font-size: 0.84rem;
+            color: var(--text-muted);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .spinner {
+            width: 15px;
+            height: 15px;
+            border: 2px solid rgba(255, 255, 255, 0.18);
+            border-top-color: var(--brand-1);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            flex: none;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* 尊重系统的"减少动效"偏好 */
+        @media (prefers-reduced-motion: reduce) {
+            *,
+            *::before,
+            *::after {
+                animation-duration: 0.001ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.001ms !important;
+            }
+        }
+
+        .failed-projects {
+            margin-top: 12px;
+            font-size: 0.82rem;
+            color: #ffc9d2;
+        }
+
+        .failed-projects summary {
+            cursor: pointer;
+            color: var(--accent-red);
+        }
+
+        .failed-projects ul {
+            margin: 8px 0 0 18px;
+            line-height: 1.7;
+            word-break: break-all;
+        }
+
+        /* ==================================================================
+           空状态
+           ================================================================== */
+        .placeholder {
+            padding: 64px 30px;
+            border-radius: var(--radius-xl);
+            border: 1px dashed var(--border-default);
+            background: linear-gradient(180deg, rgba(124, 140, 248, 0.05), transparent);
+            text-align: center;
+            color: var(--text-secondary);
+        }
+
+        .placeholder h2 {
+            margin-bottom: 12px;
+            color: var(--text-primary);
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+
+        .placeholder p {
+            margin-bottom: 8px;
+            line-height: 1.7;
+            font-size: 0.92rem;
+        }
+
+        /* ==================================================================
+           响应式
+           ================================================================== */
+        @media (max-width: 720px) {
+            .header { padding: 32px 18px 28px; }
+            .container { padding: var(--gap-lg) 16px 48px; }
+            .stats-grid { grid-template-columns: 1fr; }
+            .chart-container,
+            .contributors-list,
+            .inactive-list,
+            .progress-panel { padding: 18px 16px; }
+            .stat-card { padding: 20px; }
+            .snapshot-meta > span + span::before { display: none; }
+            .contributor-item { flex-wrap: wrap; }
         }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>📊 GitLab 统计面板</h1>
-        <p>GitLab 实例代码贡献统计</p>
+        <p>GitLab 实例代码贡献统计（数据由后台定时任务更新）</p>
         <div class="controls">
             <div class="control-group">
                 <label for="period">统计周期:</label>
-                <select id="period" onchange="loadAllData()">
+                <select id="period" onchange="onFilterChange()">
                     <option value="day">按日</option>
                     <option value="week">按周</option>
                     <option value="month">按月</option>
@@ -263,86 +864,181 @@
             </div>
             <div class="control-group">
                 <label for="days">时间范围:</label>
-                <select id="days" onchange="loadAllData()">
+                <select id="days" onchange="onFilterChange()">
+                    <option value="7">最近 7 天</option>
                     <option value="30">最近 30 天</option>
                     <option value="90" selected>最近 90 天</option>
                     <option value="180">最近 180 天</option>
                     <option value="365">最近 1 年</option>
                 </select>
             </div>
-            <button class="refresh-btn" onclick="loadAllData()">🔄 刷新</button>
+            <button class="refresh-btn" id="refresh-btn" onclick="triggerRefresh()">🔄 重新统计</button>
         </div>
     </div>
 
     <div class="container">
         <div id="error-container"></div>
 
-        <div class="stats-grid">
-            <div class="stat-card">
-                <h3>总提交数</h3>
-                <div class="value" id="total-commits">-</div>
-                <div class="label" id="commits-label">-</div>
-            </div>
-            <div class="stat-card">
-                <h3>代码增加</h3>
-                <div class="value" id="total-additions">-</div>
-                <div class="label">行数</div>
-            </div>
-            <div class="stat-card">
-                <h3>代码删除</h3>
-                <div class="value" id="total-deletions">-</div>
-                <div class="label">行数</div>
-            </div>
-            <div class="stat-card">
-                <h3>合并请求</h3>
-                <div class="value" id="total-mrs">-</div>
-                <div class="label">MR 总数</div>
-            </div>
-        </div>
+        <div id="progress-panel"></div>
 
-        <div class="chart-container">
-            <h2>📈 提交频率趋势</h2>
-            <div class="chart-wrapper">
-                <canvas id="commitChart"></canvas>
-            </div>
-        </div>
-
-        <div class="chart-container">
-            <h2>🔀 Merge Request 统计</h2>
-            <div class="chart-wrapper">
-                <canvas id="mrChart"></canvas>
-            </div>
-        </div>
-
-        <div class="chart-container">
-            <h2>💻 MR 合并趋势</h2>
-            <div class="chart-wrapper">
-                <canvas id="mrTrendChart"></canvas>
-            </div>
-        </div>
-
-        <div class="two-columns">
-            <div class="chart-container">
-                <h2>👥 代码量贡献排行</h2>
-                <div class="chart-wrapper">
-                    <canvas id="contributorsChart"></canvas>
+        <div id="data-area" style="display: none;">
+            <div class="snapshot-bar" id="snapshot-bar">
+                <div class="snapshot-meta" id="snapshot-meta"></div>
+                <div class="snapshot-actions">
+                    <span id="snapshot-status-text" style="color:#6b7794; font-size:0.84rem;"></span>
+                    <button class="btn-secondary" id="reload-btn" onclick="loadStatus(true)">刷新状态</button>
                 </div>
             </div>
 
-            <div class="contributors-list">
-                <h2>🏆 Top 贡献者</h2>
-                <div id="contributors-details"></div>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3>总提交数</h3>
+                    <div class="value" id="total-commits">-</div>
+                    <div class="label" id="commits-label">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>代码增加</h3>
+                    <div class="value" id="total-additions">-</div>
+                    <div class="label">行数</div>
+                </div>
+                <div class="stat-card">
+                    <h3>代码删除</h3>
+                    <div class="value" id="total-deletions">-</div>
+                    <div class="label">行数</div>
+                </div>
+                <div class="stat-card">
+                    <h3>合并请求</h3>
+                    <div class="value" id="total-mrs">-</div>
+                    <div class="label">MR 总数</div>
+                </div>
             </div>
-        </div>
 
-        <div class="inactive-list" id="inactive-container" style="display: none;">
-            <h2>⚠️ 零提交成员</h2>
-            <div id="inactive-details"></div>
+            <div class="chart-container">
+                <h2>📈 提交频率趋势</h2>
+                <div class="chart-wrapper">
+                    <canvas id="commitChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <h2>🔀 Merge Request 统计</h2>
+                <div class="chart-wrapper">
+                    <canvas id="mrChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <h2>💻 MR 合并趋势</h2>
+                <div class="chart-wrapper">
+                    <canvas id="mrTrendChart"></canvas>
+                </div>
+            </div>
+
+            <div class="two-columns">
+                <div class="chart-container">
+                    <h2>👥 代码量贡献排行</h2>
+                    <div class="chart-wrapper">
+                        <canvas id="contributorsChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="contributors-list">
+                    <h2>🏆 Top 贡献者</h2>
+                    <div id="contributors-details"></div>
+                </div>
+            </div>
+
+            <div class="inactive-list" id="inactive-container" style="display: none;">
+                <h2>⚠️ 未参与成员</h2>
+                <p class="inactive-hint">该时间范围内既无提交、也未参与任何 Merge Request 的成员</p>
+                <div id="inactive-details"></div>
+            </div>
         </div>
     </div>
 
     <script>
+        // 图表配色从设计令牌读取，保证「改主题只需改 :root 一处」。
+        const cssVar = (name, fallback) => {
+            const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+            return v || fallback;
+        };
+
+        const AXIS_GRID = 'rgba(255, 255, 255, 0.07)';
+        const AXIS_TEXT = '#8b96b8';
+        const COLOR_BRAND = cssVar('--chart-commit', '#7c8cf8');
+        const COLOR_ADD = cssVar('--chart-additions', '#34d399');
+        const COLOR_DEL = cssVar('--chart-deletions', '#fb7185');
+        const COLOR_MR_MERGED = cssVar('--chart-mr-merged', '#34d399');
+        const COLOR_MR_OPENED = cssVar('--chart-mr-opened', '#60a5fa');
+        const COLOR_MR_CLOSED = cssVar('--chart-mr-closed', '#fb7185');
+        const COLOR_SURFACE = cssVar('--surface-1', '#1a2038');
+
+        // 把 #rrggbb 转成 "r, g, b"，用于拼 rgba() 渐变。
+        const rgbTriplet = (hex) => {
+            const h = hex.replace('#', '');
+            const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+            const n = parseInt(full, 16);
+            if (isNaN(n)) return '124, 140, 248';
+            return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+        };
+
+        // Chart.js 全局默认：统一字体、控件与提示条风格。
+        if (window.Chart) {
+            Chart.defaults.font.family =
+                "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', Roboto, sans-serif";
+            Chart.defaults.font.size = 11;
+            Chart.defaults.color = AXIS_TEXT;
+            Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(12, 16, 36, 0.94)';
+            Chart.defaults.plugins.tooltip.borderColor = 'rgba(124, 140, 248, 0.35)';
+            Chart.defaults.plugins.tooltip.borderWidth = 1;
+            Chart.defaults.plugins.tooltip.titleColor = '#eef2ff';
+            Chart.defaults.plugins.tooltip.bodyColor = '#c3cbe8';
+            Chart.defaults.plugins.tooltip.padding = 10;
+            Chart.defaults.plugins.tooltip.cornerRadius = 8;
+            Chart.defaults.plugins.tooltip.displayColors = true;
+            Chart.defaults.plugins.tooltip.boxPadding = 4;
+        }
+
         let commitChart, mrChart, mrTrendChart, contributorsChart;
+        let pollTimer = null;
+        // 本地缓存的三份统计数据，切换展示范围时直接重绘，不触发任何网络请求。
+        let payload = { frequency: null, mr: null, volume: null };
+
+        // ---------- 工具函数 ----------
+
+        function escapeHtml(value) {
+            return String(value == null ? '' : value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function formatNumber(n) {
+            if (n == null || isNaN(n)) return '-';
+            return Number(n).toLocaleString('zh-CN');
+        }
+
+        function formatDateTime(iso) {
+            if (!iso) return '-';
+            const d = new Date(iso);
+            if (isNaN(d.getTime())) return '-';
+            const pad = v => String(v).padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        }
+
+        // 把快照年龄转成「多久之前」，让用户一眼看出数据新鲜度。
+        function formatRelativeAge(seconds) {
+            if (seconds == null) return '-';
+            if (seconds < 60) return '刚刚';
+            const minutes = Math.floor(seconds / 60);
+            if (minutes < 60) return `${minutes} 分钟前`;
+            const hours = Math.floor(minutes / 60);
+            if (hours < 24) return `${hours} 小时前`;
+            const days = Math.floor(hours / 24);
+            return `${days} 天前`;
+        }
 
         function getParams() {
             return {
@@ -359,92 +1055,374 @@
             return `最近 ${days} 天 (按月)`;
         }
 
-        async function loadAllData() {
-            try {
-                document.getElementById('error-container').innerHTML = '';
+        // 统一的坐标轴样式：横向网格线保留，纵向网格线去掉，减少视觉噪声。
+        function baseAxis(isCategoryAxis) {
+            return {
+                grid: {
+                    color: isCategoryAxis ? 'transparent' : AXIS_GRID,
+                    drawTicks: false
+                },
+                border: { display: false },
+                ticks: { color: AXIS_TEXT, padding: 8, maxRotation: 0, autoSkipPadding: 12 }
+            };
+        }
 
-                await Promise.all([
-                    loadCommitFrequency(),
-                    loadMRStatistics(),
-                    loadCodeVolume()
-                ]);
-            } catch (error) {
-                document.getElementById('error-container').innerHTML =
-                    `<div class="error">⚠️ 加载数据失败: ${error.message}<br>请检查 config.json 配置是否正确</div>`;
+        // 折线图的填充渐变，让面积区域有层次而不是一块死板的色块。
+        function areaGradient(ctx, area, rgb) {
+            if (!area) return `rgba(${rgb}, 0.12)`;
+            const g = ctx.createLinearGradient(0, area.top, 0, area.bottom);
+            g.addColorStop(0, `rgba(${rgb}, 0.34)`);
+            g.addColorStop(1, `rgba(${rgb}, 0.02)`);
+            return g;
+        }
+
+        // ---------- 状态与进度 ----------
+
+        async function loadStatus(isManual) {
+            try {
+                const resp = await fetch('/api/stats/status');
+                if (!resp.ok) throw new Error(`状态接口请求失败 (HTTP ${resp.status})`);
+                const status = await resp.json();
+                renderStatus(status);
+                return status;
+            } catch (err) {
+                if (isManual) {
+                    showError(`刷新状态失败: ${err.message}`);
+                }
+                return null;
             }
         }
 
-        async function loadCommitFrequency() {
-            const params = getParams();
-            const response = await fetch(`/api/stats/commit-frequency?period=${params.period}&days=${params.days}`);
+        function renderStatus(status) {
+            const panel = document.getElementById('progress-panel');
+            const job = status.job || {};
+            const snap = status.snapshot;
 
-            let data;
+            // 进度条只在任务运行时出现，任务结束即收起，避免占据版面。
+            if (job.state === 'running') {
+                panel.innerHTML = `
+                    <div class="progress-panel">
+                        <div class="progress-head">
+                            <div class="progress-title">
+                                <span class="spinner"></span>
+                                <span>${escapeHtml(job.message || '统计任务执行中...')}</span>
+                            </div>
+                            <span class="progress-percent">${(job.percent || 0).toFixed(1)}%</span>
+                        </div>
+                        <div class="progress-track">
+                            <div class="progress-fill" style="width: ${Math.min(job.percent || 0, 100)}%"></div>
+                        </div>
+                        <div class="progress-sub">
+                            <span>${job.total > 0 ? `已处理 ${job.current} / ${job.total} 个项目` : '正在初始化...'}</span>
+                            <span>触发方式: ${job.trigger === 'manual' ? '手动' : job.trigger === 'startup' ? '服务启动' : '定时任务'}</span>
+                        </div>
+                    </div>`;
+                setRefreshEnabled(false);
+                startPolling();
+            } else {
+                startPollingStop();
+                setRefreshEnabled(true);
+
+                if (job.state === 'failed') {
+                    panel.innerHTML = `
+                        <div class="progress-panel failed">
+                            <div class="progress-head">
+                                <div class="progress-title">⚠️ 统计任务执行失败</div>
+                            </div>
+                            <div class="progress-sub"><span>${escapeHtml(job.error || '未知错误')}</span></div>
+                        </div>`;
+                } else {
+                    panel.innerHTML = '';
+                }
+            }
+
+            renderSnapshotBar(snap, status.schedule);
+        }
+
+        function renderSnapshotBar(snap, schedule) {
+            const bar = document.getElementById('snapshot-bar');
+            const meta = document.getElementById('snapshot-meta');
+            const statusText = document.getElementById('snapshot-status-text');
+
+            if (!snap) {
+                meta.innerHTML = `<span>暂无统计数据快照，请点击「重新统计」生成。</span>`;
+                bar.classList.remove('stale');
+                statusText.textContent = '';
+                return;
+            }
+
+            bar.classList.toggle('stale', !!snap.stale);
+
+            // 历史回填是否已完成：快照只覆盖到 covered_from，
+            // 早于窗口起点的部分仍由后续每日任务逐块补齐。
+            const coverageComplete = isCoverageComplete(snap);
+
+            const items = [
+                `<span>数据时间: <strong>${escapeHtml(formatDateTime(snap.generated_at))}</strong></span>`,
+                `<span>距今: <strong>${escapeHtml(formatRelativeAge(snap.age_seconds))}</strong></span>`,
+                `<span>统计耗时: <strong>${(snap.duration_ms / 1000).toFixed(1)}s</strong></span>`,
+                `<span>覆盖项目: <strong>${formatNumber(snap.projects_scanned)}</strong></span>`,
+                `<span>记录数: <strong>${formatNumber(snap.records)}</strong></span>`
+            ];
+            if (snap.covered_from) {
+                items.push(coverageComplete
+                    ? `<span>历史覆盖: <strong>完整</strong></span>`
+                    : `<span style="color:#fbbf24;">历史回填中: <strong>已覆盖至 ${escapeHtml(snap.covered_from)}</strong></span>`);
+            }
+            if (schedule && schedule.next_run) {
+                items.push(`<span>下次更新: <strong>${escapeHtml(formatDateTime(schedule.next_run))}</strong></span>`);
+            }
+            if (snap.failed_projects > 0) {
+                items.push(`<span style="color:#fb7185;">失败项目: <strong>${snap.failed_projects}</strong></span>`);
+            }
+            meta.innerHTML = items.join('');
+
+            if (snap.stale) {
+                statusText.textContent = '⚠️ 数据已超过 26 小时未更新，可能定时任务异常';
+            } else if (snap.failed_projects > 0) {
+                statusText.textContent = '部分项目采集失败，统计结果可能不完整';
+            } else if (!coverageComplete) {
+                statusText.textContent = '历史数据仍在回填，累计值将随每日任务逐步补齐';
+            } else {
+                statusText.textContent = '数据为最近一次后台统计结果';
+            }
+        }
+
+        // isCoverageComplete 判断快照是否已覆盖满整个统计窗口。
+        function isCoverageComplete(snap) {
+            if (!snap || !snap.covered_from) return true;
+            const windowDays = snap.window_days || 365;
+            const start = new Date();
+            start.setDate(start.getDate() - windowDays);
+            const pad = v => String(v).padStart(2, '0');
+            const startKey = `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`;
+            return snap.covered_from <= startKey;
+        }
+
+        function startPolling() {
+            if (pollTimer) return;
+            pollTimer = setInterval(async () => {
+                const status = await loadStatus(false);
+                if (status && status.job && status.job.state !== 'running') {
+                    // 任务刚结束：拉取最新快照并重绘。
+                    startPollingStop();
+                    applyPayload(await fetchAllData());
+                }
+            }, 1500);
+        }
+
+        function startPollingStop() {
+            if (pollTimer) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
+        }
+
+        function setRefreshEnabled(enabled) {
+            document.getElementById('refresh-btn').disabled = !enabled;
+        }
+
+        function showError(message) {
+            document.getElementById('error-container').innerHTML =
+                `<div class="error">⚠️ ${escapeHtml(message)}</div>`;
+        }
+
+        function clearError() {
+            document.getElementById('error-container').innerHTML = '';
+        }
+
+        // ---------- 数据加载 ----------
+
+        // 拉取当前筛选条件下的全部数据，返回三份结果但不直接应用。
+        // 由调用方决定是否采纳——快速切换筛选条件时会发出多个请求，
+        // 先发的可能后到，需要按序号丢弃过期结果。
+        async function fetchAllData() {
+            const params = getParams();
+            const query = `period=${params.period}&days=${params.days}`;
+
+            const [freqResp, mrResp, volResp] = await Promise.all([
+                fetch(`/api/stats/commit-frequency?${query}`),
+                fetch(`/api/stats/mr-statistics?${query}`),
+                fetch(`/api/stats/code-volume?days=${params.days}`)
+            ]);
+
+            const freq = await readJSON(freqResp, '提交频率');
+            const mr = await readJSON(mrResp, 'MR 统计');
+            const vol = await readJSON(volResp, '代码量统计');
+
+            return { frequency: freq, mr: mr, volume: vol };
+        }
+
+        function applyPayload(next) {
+            payload = next;
+            document.getElementById('data-area').style.display = 'block';
+            renderAll();
+        }
+
+        // 切换统计周期 / 时间范围必须重新取数。
+        //
+        // 分桶（按日 / 按周 / 按月）与窗口裁剪都在服务端完成，
+        // payload 里已是聚合后的桶数组，本地重绘无法改变粒度与范围——
+        // 那样只会更新标签文字，数据仍是上一次的，报表会「说一套显示一套」。
+        //
+        // 用递增序号丢弃乱序返回的过期响应：用户连续切换时，
+        // 先发出的请求可能后返回，直接应用会让界面停留在旧条件的数据上。
+        let filterSeq = 0;
+
+        async function onFilterChange() {
+            const seq = ++filterSeq;
+            try {
+                const next = await fetchAllData();
+                if (seq !== filterSeq) return;
+                applyPayload(next);
+                clearError();
+            } catch (err) {
+                if (seq !== filterSeq) return;
+                if (!(err instanceof PendingError)) {
+                    showError(`切换统计范围失败: ${err.message}`);
+                }
+            }
+        }
+
+        // readJSON 统一处理非 200 响应，把后端的结构化错误转成可读文案。
+        async function readJSON(response, label) {
+            let data = null;
             try {
                 data = await response.json();
             } catch (e) {
-                throw new Error(`提交频率接口响应解析失败 (HTTP ${response.status})`);
+                throw new Error(`${label}接口响应解析失败 (HTTP ${response.status})`);
             }
 
+            if (response.status === 202) {
+                throw new PendingError(data?.error || '统计数据正在生成中');
+            }
             if (!response.ok) {
-                throw new Error(data?.error || `提交频率接口请求失败 (HTTP ${response.status})`);
+                throw new Error(data?.error || `${label}接口请求失败 (HTTP ${response.status})`);
+            }
+            if (data && data.error) {
+                throw new Error(data.error);
+            }
+            return data;
+        }
+
+        // PendingError 表示「服务端仍在统计」，此时应展示进度而非报错。
+        class PendingError extends Error {}
+
+        // 首次加载：先看状态，有快照就直接渲染；没有则等统计完成。
+        async function bootstrap() {
+            clearError();
+            const status = await loadStatus(false);
+
+            if (status && status.snapshot) {
+                try {
+                    applyPayload(await fetchAllData());
+                    return;
+                } catch (err) {
+                    if (err instanceof PendingError) {
+                        startPolling();
+                        return;
+                    }
+                    showError(`加载数据失败: ${err.message}`);
+                    return;
+                }
             }
 
-            if (data && data.error) throw new Error(data.error);
+            if (status && status.job && status.job.state === 'running') {
+                startPolling();
+                return;
+            }
+
+            // 既无快照也无任务：提示用户手动触发一次。
+            document.getElementById('progress-panel').innerHTML = `
+                <div class="placeholder">
+                    <h2>尚未生成统计数据</h2>
+                    <p>服务会在每天定时自动统计一次，也可以立即手动执行。</p>
+                    <p style="margin-top:18px;">
+                        <button class="refresh-btn" onclick="triggerRefresh()">🔄 立即统计</button>
+                    </p>
+                </div>`;
+            loadStatus(false);
+        }
+
+        async function triggerRefresh() {
+            clearError();
+            try {
+                const resp = await fetch('/api/stats/refresh', { method: 'POST' });
+                const data = await resp.json().catch(() => ({}));
+
+                if (resp.status === 409) {
+                    // 已有任务在跑，直接进入进度展示。
+                    await loadStatus(false);
+                    startPolling();
+                    return;
+                }
+                if (!resp.ok) {
+                    throw new Error(data.error || `触发统计失败 (HTTP ${resp.status})`);
+                }
+                await loadStatus(false);
+            } catch (err) {
+                showError(`触发统计失败: ${err.message}`);
+            }
+        }
+
+        // ---------- 渲染 ----------
+
+        function renderAll() {
+            if (!payload.frequency || !payload.mr || !payload.volume) return;
+            renderCommitFrequency(payload.frequency);
+            renderMRStatistics(payload.mr);
+            renderCodeVolume(payload.volume);
+        }
+
+        function renderCommitFrequency(data) {
+            const list = Array.isArray(data) ? data : [];
 
             document.getElementById('total-commits').textContent =
-                data.reduce((sum, item) => sum + item.count, 0);
+                formatNumber(list.reduce((sum, item) => sum + item.count, 0));
             document.getElementById('commits-label').textContent = getPeriodLabel();
 
-            const labels = data.map(item => item.date);
-            const values = data.map(item => item.count);
+            // 折线平时不画圆点，避免长区间下密集的点糊成一片。
+            // 但数据桶极少时（如「最近 7 天 + 按月」只有 1 个桶，按周只有 2 个），
+            // 单点既无长度也无圆点、两点连成的线段又太短，图表会近乎空白。
+            // 此时改为显示圆点，保证短区间下数据可见。
+            const sparse = list.length <= 2;
 
             if (commitChart) commitChart.destroy();
 
             commitChart = new Chart(document.getElementById('commitChart'), {
                 type: 'line',
                 data: {
-                    labels: labels,
+                    labels: list.map(item => item.date),
                     datasets: [{
                         label: '提交数',
-                        data: values,
-                        borderColor: '#667eea',
-                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        data: list.map(item => item.count),
+                        borderColor: COLOR_BRAND,
+                        borderWidth: 2,
+                        backgroundColor: (ctx) => {
+                            const { chart } = ctx;
+                            return areaGradient(chart.ctx, chart.chartArea, rgbTriplet(COLOR_BRAND));
+                        },
                         fill: true,
-                        tension: 0.4
+                        tension: sparse ? 0 : 0.38,
+                        pointRadius: sparse ? 4 : 0,
+                        pointHoverRadius: sparse ? 7 : 5,
+                        pointBackgroundColor: COLOR_BRAND,
+                        pointBorderColor: COLOR_SURFACE,
+                        pointBorderWidth: 2
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false }
-                    },
-                    scales: {
-                        x: { grid: { color: '#2a2a4a' }, ticks: { color: '#888' } },
-                        y: { grid: { color: '#2a2a4a' }, ticks: { color: '#888' } }
-                    }
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: { legend: { display: false } },
+                    scales: { x: baseAxis(true), y: baseAxis(false) }
                 }
             });
         }
 
-        async function loadMRStatistics() {
-            const params = getParams();
-            const response = await fetch(`/api/stats/mr-statistics?period=${params.period}&days=${params.days}`);
-
-            let data;
-            try {
-                data = await response.json();
-            } catch (e) {
-                throw new Error(`MR统计接口响应解析失败 (HTTP ${response.status})`);
-            }
-
-            if (!response.ok) {
-                throw new Error(data?.error || `MR统计接口请求失败 (HTTP ${response.status})`);
-            }
-
-            if (data && data.error) throw new Error(data.error);
-
-            document.getElementById('total-mrs').textContent = data.total;
+        function renderMRStatistics(data) {
+            document.getElementById('total-mrs').textContent = formatNumber(data.total);
 
             if (mrChart) mrChart.destroy();
 
@@ -454,16 +1432,25 @@
                     labels: ['已合并', '进行中', '已关闭'],
                     datasets: [{
                         data: [data.merged, data.opened, data.closed],
-                        backgroundColor: ['#4ade80', '#60a5fa', '#f87171']
+                        backgroundColor: [COLOR_MR_MERGED, COLOR_MR_OPENED, COLOR_MR_CLOSED],
+                        borderColor: COLOR_SURFACE,
+                        borderWidth: 3,
+                        hoverOffset: 8
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    cutout: '62%',
                     plugins: {
                         legend: {
                             position: 'bottom',
-                            labels: { color: '#888' }
+                            labels: {
+                                color: AXIS_TEXT,
+                                usePointStyle: true,
+                                pointStyle: 'circle',
+                                padding: 16
+                            }
                         }
                     }
                 }
@@ -472,74 +1459,60 @@
             if (mrTrendChart) mrTrendChart.destroy();
 
             const mergedByDay = data.merged_by_day || [];
-            const trendLabels = mergedByDay.map(item => item.date);
-            const trendValues = mergedByDay.map(item => item.count);
 
             mrTrendChart = new Chart(document.getElementById('mrTrendChart'), {
                 type: 'bar',
                 data: {
-                    labels: trendLabels,
+                    labels: mergedByDay.map(item => item.date),
                     datasets: [{
                         label: '合并的 MR',
-                        data: trendValues,
-                        backgroundColor: '#4ade80'
+                        data: mergedByDay.map(item => item.count),
+                        backgroundColor: `rgba(${rgbTriplet(COLOR_MR_MERGED)}, 0.72)`,
+                        hoverBackgroundColor: COLOR_MR_MERGED,
+                        borderRadius: 4,
+                        borderSkipped: false,
+                        maxBarThickness: 26
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false }
-                    },
-                    scales: {
-                        x: { grid: { color: '#2a2a4a' }, ticks: { color: '#888' } },
-                        y: { grid: { color: '#2a2a4a' }, ticks: { color: '#888' } }
-                    }
+                    plugins: { legend: { display: false } },
+                    scales: { x: baseAxis(true), y: baseAxis(false) }
                 }
             });
         }
 
-        async function loadCodeVolume() {
-            const params = getParams();
-            const response = await fetch(`/api/stats/code-volume?days=${params.days}`);
-
-            let data;
-            try {
-                data = await response.json();
-            } catch (e) {
-                throw new Error(`代码量统计接口响应解析失败 (HTTP ${response.status})`);
-            }
-
-            if (!response.ok) {
-                throw new Error(data?.error || `代码量统计接口请求失败 (HTTP ${response.status})`);
-            }
-
-            if (data && data.error) throw new Error(data.error);
-
-            document.getElementById('total-additions').textContent = '+' + data.total_additions;
-            document.getElementById('total-deletions').textContent = '-' + data.total_deletions;
+        function renderCodeVolume(data) {
+            document.getElementById('total-additions').textContent =
+                '+' + formatNumber(data.total_additions);
+            document.getElementById('total-deletions').textContent =
+                '-' + formatNumber(data.total_deletions);
 
             const contributors = data.top_contributors || [];
-            const names = contributors.map(c => c.name.length > 15 ? c.name.substring(0, 15) + '...' : c.name);
-            const additions = contributors.map(c => c.additions);
-            const deletions = contributors.map(c => c.deletions);
 
             if (contributorsChart) contributorsChart.destroy();
 
             contributorsChart = new Chart(document.getElementById('contributorsChart'), {
                 type: 'bar',
                 data: {
-                    labels: names,
+                    labels: contributors.map(c => c.name.length > 15 ? c.name.substring(0, 15) + '...' : c.name),
                     datasets: [
                         {
                             label: '增加',
-                            data: additions,
-                            backgroundColor: '#4ade80'
+                            data: contributors.map(c => c.additions),
+                            backgroundColor: `rgba(${rgbTriplet(COLOR_ADD)}, 0.82)`,
+                            hoverBackgroundColor: COLOR_ADD,
+                            borderRadius: 4,
+                            borderSkipped: false
                         },
                         {
                             label: '删除',
-                            data: deletions.map(d => -d),
-                            backgroundColor: '#f87171'
+                            data: contributors.map(c => -c.deletions),
+                            backgroundColor: `rgba(${rgbTriplet(COLOR_DEL)}, 0.82)`,
+                            hoverBackgroundColor: COLOR_DEL,
+                            borderRadius: 4,
+                            borderSkipped: false
                         }
                     ]
                 },
@@ -547,17 +1520,26 @@
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
-                        legend: { labels: { color: '#888' } }
+                        legend: {
+                            labels: {
+                                color: AXIS_TEXT,
+                                usePointStyle: true,
+                                pointStyle: 'rectRounded',
+                                padding: 16
+                            }
+                        }
                     },
                     scales: {
                         x: {
-                            grid: { color: '#2a2a4a' },
-                            ticks: { color: '#888' },
+                            grid: { color: 'transparent', drawTicks: false },
+                            border: { display: false },
+                            ticks: { color: AXIS_TEXT, padding: 8, maxRotation: 0, autoSkip: false },
                             stacked: true
                         },
                         y: {
-                            grid: { color: '#2a2a4a' },
-                            ticks: { color: '#888' },
+                            grid: { color: AXIS_GRID, drawTicks: false },
+                            border: { display: false },
+                            ticks: { color: AXIS_TEXT, padding: 8 },
                             stacked: true
                         }
                     }
@@ -565,37 +1547,57 @@
             });
 
             const detailsContainer = document.getElementById('contributors-details');
-            detailsContainer.innerHTML = contributors.map(c => `
-                <div class="contributor-item">
-                    <span class="contributor-name">
-                        ${c.profile_url ? `<a href="${c.profile_url}" target="_blank" style="color: inherit; text-decoration: none;">${c.name}${c.username ? ` <span style="opacity: 0.6; font-size: 0.85em;">(@${c.username})</span>` : ''}</a>` : c.name}
-                    </span>
-                    <div class="contributor-stats">
-                        <span class="commits">📝 ${c.commits}</span>
-                        <span class="additions">+${c.additions}</span>
-                        <span class="deletions">-${c.deletions}</span>
-                    </div>
-                </div>
-            `).join('');
+            if (contributors.length === 0) {
+                detailsContainer.innerHTML = '<div class="inactive-item">该时间范围内暂无提交</div>';
+            } else {
+                detailsContainer.innerHTML = contributors.map(c => {
+                    const name = escapeHtml(c.name);
+                    const username = c.username ? ` <span style="opacity: 0.6; font-size: 0.85em;">(@${escapeHtml(c.username)})</span>` : '';
+                    const label = c.profile_url
+                        ? `<a href="${escapeHtml(c.profile_url)}" target="_blank" rel="noopener">${name}${username}</a>`
+                        : `${name}${username}`;
+                    return `
+                        <div class="contributor-item">
+                            <span class="contributor-name">${label}</span>
+                            <div class="contributor-stats">
+                                <span class="commits">📝 ${formatNumber(c.commits)}</span>
+                                <span class="additions">+${formatNumber(c.additions)}</span>
+                                <span class="deletions">-${formatNumber(c.deletions)}</span>
+                            </div>
+                        </div>`;
+                }).join('');
+            }
 
             const inactiveContainer = document.getElementById('inactive-container');
             const inactiveDetails = document.getElementById('inactive-details');
-            if (data.inactive_members && data.inactive_members.length > 0) {
+            const inactive = data.inactive_members || [];
+
+            if (inactive.length > 0) {
                 inactiveContainer.style.display = 'block';
-                inactiveDetails.innerHTML = data.inactive_members.map(member => `
-                    <div class="inactive-item">
-                        <a href="${member.profile_url}" target="_blank" style="color: #888; text-decoration: none;">
-                            ${member.name} <span style="opacity: 0.6;">(@${member.username})</span>
-                            <span style="float: right;">↗</span>
-                        </a>
-                    </div>
-                `).join('');
+                inactiveDetails.innerHTML = inactive.map(member => {
+                    const name = escapeHtml(member.name);
+                    const username = member.username
+                        ? ` <span style="opacity: 0.6;">(@${escapeHtml(member.username)})</span>`
+                        : '';
+                    if (member.profile_url) {
+                        return `
+                            <div class="inactive-item">
+                                <a href="${escapeHtml(member.profile_url)}" target="_blank" rel="noopener">
+                                    ${name}${username}
+                                    <span style="float: right;">↗</span>
+                                </a>
+                            </div>`;
+                    }
+                    return `<div class="inactive-item">${name}${username}</div>`;
+                }).join('');
             } else {
                 inactiveContainer.style.display = 'none';
             }
         }
 
-        loadAllData();
+        // 切换周期/范围时不再请求后端，直接用快照数据重绘。
+        window.addEventListener('load', bootstrap);
+        window.addEventListener('beforeunload', startPollingStop);
     </script>
 </body>
 </html>
