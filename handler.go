@@ -23,6 +23,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -67,6 +68,8 @@ func (h *Handler) Router() http.Handler {
 	mux.HandleFunc("/api/stats/commit-frequency", h.commitFrequencyHandler)
 	mux.HandleFunc("/api/stats/mr-statistics", h.mrStatisticsHandler)
 	mux.HandleFunc("/api/stats/code-volume", h.codeVolumeHandler)
+	mux.HandleFunc("/api/stats/users", h.usersHandler)
+	mux.HandleFunc("/api/stats/user-detail", h.userDetailHandler)
 	mux.HandleFunc("/api/stats/status", h.statusHandler)
 	mux.HandleFunc("/api/stats/refresh", h.refreshHandler)
 	return mux
@@ -377,4 +380,69 @@ func buildProfileURL(gitlabURL, username string) string {
 		return ""
 	}
 	return strings.TrimSuffix(gitlabURL, "/") + "/" + username
+}
+
+// usersHandler 返回非 bot、且未被排除名单命中的用户列表，供前端做「选择用户」下拉。
+//
+// 与全局面板一致：bot 不参与考核，排除名单中的自动化账号也不应出现在选择器里
+// （否则用户选中后下钻只能看到「已排除」的空结果，自相矛盾）。
+func (h *Handler) usersHandler(w http.ResponseWriter, r *http.Request) {
+	snap, ok := h.requireSnapshot(w)
+	if !ok {
+		return
+	}
+
+	list := make([]UserIdentity, 0, len(snap.Totals.Users))
+	for i := range snap.Totals.Users {
+		u := &snap.Totals.Users[i]
+		if u.Bot {
+			continue
+		}
+		if snap.IsUserExcluded(u) {
+			continue
+		}
+		list = append(list, UserIdentity{
+			Name:       u.Name,
+			Username:   u.Username,
+			ProfileURL: u.ProfileURL,
+		})
+	}
+
+	// 按姓名 → 用户名排序，让下拉列表稳定可读。
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].Name != list[j].Name {
+			return list[i].Name < list[j].Name
+		}
+		return list[i].Username < list[j].Username
+	})
+
+	writeJSON(w, http.StatusOK, list)
+}
+
+// userDetailHandler 是个人的聚合下钻接口。
+//
+// 入参 user 支持 GitLab 用户 ID / 用户名 / 邮箱 / 姓名四种写法；
+// period、days 与全局面板含义相同，只影响内存聚合范围，不触发 GitLab 请求。
+// 查无此人回 404，参数缺失回 400，被排除身份回 200 但带 excluded 标记。
+func (h *Handler) userDetailHandler(w http.ResponseWriter, r *http.Request) {
+	snap, ok := h.requireSnapshot(w)
+	if !ok {
+		return
+	}
+	period, days := h.parseQueryParams(r)
+
+	raw := strings.TrimSpace(r.URL.Query().Get("user"))
+	if raw == "" {
+		h.jsonError(w, http.StatusBadRequest, "请提供 user 参数（用户名 / 邮箱 / 姓名 / ID）")
+		return
+	}
+
+	detail, err := BuildUserDetail(snap, raw, period, days, h.cfg.GitLabURL)
+	if err != nil {
+		h.jsonError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	w.Header().Set("X-Snapshot-Time", snap.GeneratedAt.Format(time.RFC3339))
+	writeJSON(w, http.StatusOK, detail)
 }

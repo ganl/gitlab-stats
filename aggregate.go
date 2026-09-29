@@ -15,6 +15,7 @@
 package main
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -422,4 +423,240 @@ func BuildCodeVolume(snap *Snapshot, days int, gitlabURL string) CodeVolume {
 	})
 
 	return stats
+}
+
+// ---------- 个人贡献下钻（聚合视角，不改动采集 schema） ----------
+
+// UserDetail 是个人贡献的下钻结果，全部基于快照 Daily 事实表聚合得到，
+// 不触发任何 GitLab 实时请求。其口径与全局面板完全一致：排除名单、bot、
+// 展示窗口裁剪都沿用同一套逻辑，因此下钻数字与排行/总量自洽。
+type UserDetail struct {
+	User            UserIdentity      `json:"user"`
+	Period          string            `json:"period"`
+	Days            int               `json:"days"`
+	Excluded        bool              `json:"excluded"`
+	StatsIncomplete bool              `json:"stats_incomplete,omitempty"`
+	Totals          ContributorStats  `json:"totals"`
+	MR              UserMRStats       `json:"mr"`
+	DailyCommit     []CommitFrequency `json:"daily_commit"`
+	DailyMR         []MergedByDay     `json:"daily_mr"`
+	Daily           []DailyDetail     `json:"daily"`
+}
+
+// UserIdentity 是下钻目标的展示身份（优先用用户表中的稳定信息）。
+type UserIdentity struct {
+	Name       string `json:"name"`
+	Username   string `json:"username"`
+	ProfileURL string `json:"profile_url"`
+}
+
+// UserMRStats 个人的 MR 活动计数。
+type UserMRStats struct {
+	Created int `json:"created"`
+	Merged  int `json:"merged"`
+	Opened  int `json:"opened"`
+	Closed  int `json:"closed"`
+}
+
+// DailyDetail 是个人的按日明细行，粒度固定为「天」（与趋势图的分桶粒度解耦，
+// 让明细表始终给出逐日事实）。
+type DailyDetail struct {
+	Date       string `json:"date"`
+	Commits    int    `json:"commits"`
+	Additions  int    `json:"additions"`
+	Deletions  int    `json:"deletions"`
+	CreatedMRs int    `json:"created_mrs"`
+	MergedMRs  int    `json:"merged_mrs"`
+	OpenedMRs  int    `json:"opened_mrs"`
+	ClosedMRs  int    `json:"closed_mrs"`
+	Incomplete bool   `json:"stats_incomplete,omitempty"`
+}
+
+// BuildUserDetail 从快照重建单个用户的贡献详情。
+//
+// userQuery 支持四种写法：GitLab 用户 ID、用户名、邮箱、姓名——与全局面板的身份
+// 匹配口径一致（只是方向反过来：这里是「用查询串去命中一个人」）。
+//
+// 匹配优先级刻意与采集侧归并键对齐：
+//   - 命中用户表且拿到稳定 ID 时，按 AuthorKey 精确归并，避免同名/改名干扰；
+//   - 命中不到用户表时（如上游未匹配身份 AuthorKey=0），退回按用户名/邮箱/姓名
+//     字面匹配，保证手动输入仍能下钻到快照里存在的任意身份。
+//
+// 返回的错误只有两种语义：参数缺失（调用方应回 400）、用户确实无任何记录（调用方应回 404）。
+// 被排除的自动化身份不报错，而是返回 Excluded=true 的空结果，让前端明确标注而非假装没有。
+func BuildUserDetail(snap *Snapshot, userQuery, period string, days int, gitlabURL string) (*UserDetail, error) {
+	raw := normalizeString(userQuery)
+	if raw == "" {
+		return nil, fmt.Errorf("请提供 user 参数（用户名 / 邮箱 / 姓名 / ID）")
+	}
+
+	target, found := resolveUserQuery(snap.Totals.Users, userQuery)
+
+	// 被排除名单命中的账号不在任何统计里，下钻也只应看到「已排除」而非凭空的数字。
+	if found && snap.IsUserExcluded(&target) {
+		return &UserDetail{
+			User:     identityOf(target),
+			Period:   period,
+			Days:     days,
+			Excluded: true,
+		}, nil
+	}
+
+	detail := &UserDetail{
+		User:   identityOf(target),
+		Period: period,
+		Days:   days,
+	}
+
+	// 记录级匹配：有稳定 ID 走 AuthorKey，否则退回字面匹配；排除名单在任何情况下都跳过。
+	match := func(d *DailyStat) bool {
+		if snap.IsAuthorExcluded(d) {
+			return false
+		}
+		if found && target.ID > 0 {
+			return d.AuthorKey == target.ID
+		}
+		return identityMatchesAny([]string{raw}, d.Username, d.Email, d.Name)
+	}
+
+	commitBuckets := make(map[string]int)
+	mrBuckets := make(map[string]int)
+	dailyMap := make(map[string]*DailyDetail)
+	dailyOrder := make([]string, 0)
+	incomplete := false
+
+	for i := range snap.Daily {
+		d := &snap.Daily[i]
+		if !withinWindow(d.Date, days) {
+			continue
+		}
+		if !match(d) {
+			continue
+		}
+
+		// 未命中用户表时，逐步用日报里的真实展示信息补齐身份。
+		if detail.User.Name == "" && d.Name != "" {
+			detail.User.Name = d.Name
+		}
+		if detail.User.Username == "" && d.Username != "" {
+			detail.User.Username = d.Username
+		}
+		if detail.User.ProfileURL == "" {
+			detail.User.ProfileURL = d.ProfileURL
+		}
+		if detail.User.ProfileURL == "" && detail.User.Username != "" {
+			detail.User.ProfileURL = buildProfileURL(gitlabURL, detail.User.Username)
+		}
+
+		detail.Totals.Commits += d.Commits
+		detail.Totals.Additions += d.Additions
+		detail.Totals.Deletions += d.Deletions
+		detail.MR.Created += d.CreatedMRs
+		detail.MR.Merged += d.MergedMRs
+		detail.MR.Opened += d.OpenedMRs
+		detail.MR.Closed += d.ClosedMRs
+		if d.StatsIncomplete {
+			incomplete = true
+		}
+
+		if t, err := time.Parse(dateLayout, d.Date); err == nil {
+			commitBuckets[formatKey(t, period)] += d.Commits
+			if d.MergedMRs > 0 {
+				mrBuckets[formatKey(t, period)] += d.MergedMRs
+			}
+		}
+
+		entry, ok := dailyMap[d.Date]
+		if !ok {
+			entry = &DailyDetail{Date: d.Date}
+			dailyMap[d.Date] = entry
+			dailyOrder = append(dailyOrder, d.Date)
+		}
+		entry.Commits += d.Commits
+		entry.Additions += d.Additions
+		entry.Deletions += d.Deletions
+		entry.CreatedMRs += d.CreatedMRs
+		entry.MergedMRs += d.MergedMRs
+		entry.OpenedMRs += d.OpenedMRs
+		entry.ClosedMRs += d.ClosedMRs
+		if d.StatsIncomplete {
+			entry.Incomplete = true
+		}
+	}
+
+	detail.StatsIncomplete = incomplete
+	detail.DailyCommit = bucketToCommitFreq(commitBuckets)
+	detail.DailyMR = bucketToMergedByDay(mrBuckets)
+
+	// 每日明细按日期升序，便于逐行阅读。
+	sort.Strings(dailyOrder)
+	detail.Daily = make([]DailyDetail, 0, len(dailyOrder))
+	for _, date := range dailyOrder {
+		detail.Daily = append(detail.Daily, *dailyMap[date])
+	}
+
+	// 既不在用户表、又没有任何日报命中：确实查无此人，交由调用方回 404。
+	if detail.Totals.Commits == 0 && detail.MR.Created == 0 && len(detail.Daily) == 0 {
+		return nil, fmt.Errorf("未找到用户 %q 的任何记录", userQuery)
+	}
+
+	return detail, nil
+}
+
+// resolveUserQuery 在用户表里把查询串解析为一个稳定身份。
+//
+// 优先级：数字 ID → 用户名/邮箱（二者唯一且稳定）→ 姓名（兜底）。
+// 姓名匹配可能撞名，因此只在没有更稳定的命中时才退回它。
+// 返回 (零值, false) 表示用户表里查无此人——此时下钻仍可走日报字面匹配。
+func resolveUserQuery(users []SnapshotUser, raw string) (SnapshotUser, bool) {
+	n := normalizeString(raw)
+	if n == "" {
+		return SnapshotUser{}, false
+	}
+
+	if id, err := strconv.Atoi(n); err == nil {
+		for i := range users {
+			if users[i].ID == id {
+				return users[i], true
+			}
+		}
+	}
+
+	for i := range users {
+		if normalizeString(users[i].Username) == n || normalizeString(users[i].Email) == n {
+			return users[i], true
+		}
+	}
+
+	for i := range users {
+		if normalizeString(users[i].Name) == n {
+			return users[i], true
+		}
+	}
+
+	return SnapshotUser{}, false
+}
+
+func identityOf(u SnapshotUser) UserIdentity {
+	return UserIdentity{Name: u.Name, Username: u.Username, ProfileURL: u.ProfileURL}
+}
+
+// bucketToCommitFreq 把分桶计数转成有序的提交趋势序列。
+func bucketToCommitFreq(buckets map[string]int) []CommitFrequency {
+	out := make([]CommitFrequency, 0, len(buckets))
+	for k, v := range buckets {
+		out = append(out, CommitFrequency{Date: k, Count: v})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Date < out[j].Date })
+	return out
+}
+
+// bucketToMergedByDay 把分桶计数转成有序的 MR 合并趋势序列。
+func bucketToMergedByDay(buckets map[string]int) []MergedByDay {
+	out := make([]MergedByDay, 0, len(buckets))
+	for k, v := range buckets {
+		out = append(out, MergedByDay{Date: k, Count: v})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Date < out[j].Date })
+	return out
 }

@@ -419,6 +419,35 @@
             border-bottom: 1px solid var(--border-subtle);
         }
 
+        /* 「显示全部 / 收起」切换：轻量胶囊按钮，不抢 h2 的视觉重心。
+           h2 本身是 flex 容器，margin-left: auto 让它贴右。 */
+        .contributors-list h2 .link-btn {
+            margin-left: auto;
+            padding: 4px 11px;
+            border: 1px solid var(--border-default);
+            border-radius: 999px;
+            background: var(--brand-soft);
+            color: var(--brand-1);
+            font-family: inherit;
+            font-size: 0.78rem;
+            font-weight: 500;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: background var(--dur) var(--ease),
+                        border-color var(--dur) var(--ease),
+                        opacity var(--dur) var(--ease);
+        }
+
+        .contributors-list h2 .link-btn:hover:not(:disabled) {
+            background: rgba(124, 140, 248, 0.24);
+            border-color: var(--brand-1);
+        }
+
+        .contributors-list h2 .link-btn:disabled {
+            opacity: 0.6;
+            cursor: default;
+        }
+
         .contributor-item {
             display: flex;
             justify-content: space-between;
@@ -833,6 +862,160 @@
         }
 
         /* ==================================================================
+           个人贡献下钻
+           ================================================================== */
+        .user-input {
+            padding: 7px 12px;
+            border-radius: 999px;
+            border: 1px solid transparent;
+            background: rgba(255, 255, 255, 0.07);
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            font-family: inherit;
+            outline: none;
+            min-width: 180px;
+            transition: all var(--dur) var(--ease);
+        }
+
+        .user-input::placeholder { color: var(--text-muted); }
+        .user-input:hover { background: rgba(255, 255, 255, 0.12); }
+        .user-input:focus-visible {
+            border-color: var(--brand-1);
+            box-shadow: 0 0 0 3px var(--brand-soft);
+        }
+
+        #user-detail {
+            margin-top: var(--gap-lg);
+            padding: 26px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-default);
+            background: linear-gradient(160deg, var(--surface-2) 0%, var(--surface-1) 100%);
+            box-shadow: var(--shadow-md);
+        }
+
+        #user-detail .ud-head {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        #user-detail .ud-head h2 {
+            font-size: 1.15rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        #user-detail .ud-head .ud-sub {
+            color: var(--text-muted);
+            font-size: 0.86rem;
+        }
+
+        #user-detail .ud-badge {
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-size: 0.74rem;
+            background: rgba(251, 191, 36, 0.14);
+            color: var(--accent-amber);
+        }
+
+        .ud-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: var(--gap-md);
+            margin-bottom: var(--gap-lg);
+        }
+
+        .ud-card {
+            padding: 18px 20px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-subtle);
+            background: var(--surface-inset);
+        }
+
+        .ud-card h4 {
+            color: var(--text-secondary);
+            font-size: 0.74rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 10px;
+        }
+
+        .ud-card .v {
+            font-size: 1.6rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            background: linear-gradient(120deg, #ffffff 0%, #b9c4ff 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .ud-charts {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--gap-md);
+            margin-bottom: var(--gap-lg);
+        }
+
+        @media (max-width: 900px) {
+            .ud-charts { grid-template-columns: 1fr; }
+        }
+
+        .ud-chart-box {
+            padding: 18px 20px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-subtle);
+            background: var(--surface-inset);
+        }
+
+        .ud-chart-box h3 {
+            margin-bottom: 14px;
+            color: var(--text-primary);
+            font-size: 0.98rem;
+            font-weight: 600;
+        }
+
+        .ud-chart-wrap {
+            position: relative;
+            height: 280px;
+        }
+
+        .ud-table-wrap {
+            max-height: 420px;
+            overflow: auto;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-subtle);
+        }
+
+        table.ud-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.86rem;
+        }
+
+        table.ud-table th, table.ud-table td {
+            padding: 9px 14px;
+            text-align: right;
+            border-bottom: 1px solid var(--border-subtle);
+            font-variant-numeric: tabular-nums;
+        }
+
+        table.ud-table th:first-child, table.ud-table td:first-child { text-align: left; }
+        table.ud-table th {
+            position: sticky;
+            top: 0;
+            background: var(--surface-2);
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+        table.ud-table tr:hover td { background: rgba(255, 255, 255, 0.04); }
+
+        /* ==================================================================
            响应式
            ================================================================== */
         @media (max-width: 720px) {
@@ -871,6 +1054,14 @@
                     <option value="180">最近 180 天</option>
                     <option value="365">最近 1 年</option>
                 </select>
+            </div>
+            <div class="control-group">
+                <label for="user-select">成员下钻:</label>
+                <input class="user-input" list="user-options" id="user-select"
+                       placeholder="输入用户名或选择成员" autocomplete="off"
+                       onchange="onUserSelected()">
+                <datalist id="user-options"></datalist>
+                <button class="btn-secondary" id="user-clear" style="display:none;" onclick="clearUserDetail()">✕ 清除</button>
             </div>
             <button class="refresh-btn" id="refresh-btn" onclick="triggerRefresh()">🔄 重新统计</button>
         </div>
@@ -943,7 +1134,11 @@
                 </div>
 
                 <div class="contributors-list">
-                    <h2>🏆 Top 贡献者</h2>
+                    <h2>
+                        <span id="contributors-title">🏆 Top 贡献者</span>
+                        <button type="button" id="contributors-toggle" class="link-btn"
+                                style="display: none;" onclick="toggleContributors()"></button>
+                    </h2>
                     <div id="contributors-details"></div>
                 </div>
             </div>
@@ -952,6 +1147,36 @@
                 <h2>⚠️ 未参与成员</h2>
                 <p class="inactive-hint">该时间范围内既无提交、也未参与任何 Merge Request 的成员</p>
                 <div id="inactive-details"></div>
+            </div>
+
+            <div id="user-detail" style="display: none;">
+                <div class="ud-head">
+                    <h2 id="ud-name">成员贡献详情</h2>
+                    <span class="ud-sub" id="ud-range"></span>
+                    <span class="ud-badge" id="ud-badge" style="display:none;"></span>
+                </div>
+                <div class="ud-grid" id="ud-cards"></div>
+                <div class="ud-charts">
+                    <div class="ud-chart-box">
+                        <h3>📈 提交趋势</h3>
+                        <div class="ud-chart-wrap"><canvas id="userCommitChart"></canvas></div>
+                    </div>
+                    <div class="ud-chart-box">
+                        <h3>🔀 MR 合并趋势</h3>
+                        <div class="ud-chart-wrap"><canvas id="userMRChart"></canvas></div>
+                    </div>
+                </div>
+                <div class="ud-table-wrap">
+                    <table class="ud-table">
+                        <thead>
+                            <tr>
+                                <th>日期</th><th>提交</th><th>增加</th><th>删除</th>
+                                <th>创建 MR</th><th>合并 MR</th><th>打开 MR</th><th>关闭 MR</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ud-daily"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -1243,7 +1468,9 @@
             const [freqResp, mrResp, volResp] = await Promise.all([
                 fetch(`/api/stats/commit-frequency?${query}`),
                 fetch(`/api/stats/mr-statistics?${query}`),
-                fetch(`/api/stats/code-volume?days=${params.days}`)
+                // 已展开完整榜单时，筛选条件变化后仍要拿全量——
+                // 否则用户切个窗口，列表会莫名其妙缩回前 N 名。
+                fetch(`/api/stats/code-volume?days=${params.days}${contributorsExpanded ? '&limit=all' : ''}`)
             ]);
 
             const freq = await readJSON(freqResp, '提交频率');
@@ -1257,6 +1484,11 @@
             payload = next;
             document.getElementById('data-area').style.display = 'block';
             renderAll();
+            // 首次拿到快照后拉一次成员列表，供下钻选择器使用。
+            if (!usersLoaded) {
+                usersLoaded = true;
+                loadUsers();
+            }
         }
 
         // 切换统计周期 / 时间范围必须重新取数。
@@ -1275,6 +1507,11 @@
                 const next = await fetchAllData();
                 if (seq !== filterSeq) return;
                 applyPayload(next);
+                // 已选中成员时，周期/范围变化后同步刷新其下钻视图。
+                if (selectedUser) {
+                    const s = ++userDetailSeq;
+                    fetchUserDetail(s);
+                }
                 clearError();
             } catch (err) {
                 if (seq !== filterSeq) return;
@@ -1483,24 +1720,43 @@
             });
         }
 
+        // ---------- 贡献者榜单：默认前 N 名，可展开为完整榜单 ----------
+
+        // 图表固定只画前 N 名：一个窗口里可能有数百名贡献者，
+        // 全画进柱状图既读不出信息、也拖慢渲染。完整名单在右侧列表里给。
+        const CONTRIBUTOR_CHART_N = 10;
+
+        // 是否已展开为完整榜单。跨筛选条件保留——用户既然选择看全量，
+        // 切窗口不该把这个选择重置掉。
+        let contributorsExpanded = false;
+
+        // 展开/收起请求的序号，用于丢弃乱序返回的过期响应。
+        let contributorsSeq = 0;
+
         function renderCodeVolume(data) {
             document.getElementById('total-additions').textContent =
                 '+' + formatNumber(data.total_additions);
             document.getElementById('total-deletions').textContent =
                 '-' + formatNumber(data.total_deletions);
 
-            const contributors = data.top_contributors || [];
+            renderContributorsChart(data.top_contributors || []);
+            renderContributorList(data);
+            renderInactiveMembers(data);
+        }
+
+        function renderContributorsChart(contributors) {
+            const shown = contributors.slice(0, CONTRIBUTOR_CHART_N);
 
             if (contributorsChart) contributorsChart.destroy();
 
             contributorsChart = new Chart(document.getElementById('contributorsChart'), {
                 type: 'bar',
                 data: {
-                    labels: contributors.map(c => c.name.length > 15 ? c.name.substring(0, 15) + '...' : c.name),
+                    labels: shown.map(c => c.name.length > 15 ? c.name.substring(0, 15) + '...' : c.name),
                     datasets: [
                         {
                             label: '增加',
-                            data: contributors.map(c => c.additions),
+                            data: shown.map(c => c.additions),
                             backgroundColor: `rgba(${rgbTriplet(COLOR_ADD)}, 0.82)`,
                             hoverBackgroundColor: COLOR_ADD,
                             borderRadius: 4,
@@ -1508,7 +1764,7 @@
                         },
                         {
                             label: '删除',
-                            data: contributors.map(c => -c.deletions),
+                            data: shown.map(c => -c.deletions),
                             backgroundColor: `rgba(${rgbTriplet(COLOR_DEL)}, 0.82)`,
                             hoverBackgroundColor: COLOR_DEL,
                             borderRadius: 4,
@@ -1545,32 +1801,14 @@
                     }
                 }
             });
+        }
 
-            const detailsContainer = document.getElementById('contributors-details');
-            if (contributors.length === 0) {
-                detailsContainer.innerHTML = '<div class="inactive-item">该时间范围内暂无提交</div>';
-            } else {
-                detailsContainer.innerHTML = contributors.map(c => {
-                    const name = escapeHtml(c.name);
-                    const username = c.username ? ` <span style="opacity: 0.6; font-size: 0.85em;">(@${escapeHtml(c.username)})</span>` : '';
-                    const label = c.profile_url
-                        ? `<a href="${escapeHtml(c.profile_url)}" target="_blank" rel="noopener">${name}${username}</a>`
-                        : `${name}${username}`;
-                    return `
-                        <div class="contributor-item">
-                            <span class="contributor-name">${label}</span>
-                            <div class="contributor-stats">
-                                <span class="commits">📝 ${formatNumber(c.commits)}</span>
-                                <span class="additions">+${formatNumber(c.additions)}</span>
-                                <span class="deletions">-${formatNumber(c.deletions)}</span>
-                            </div>
-                        </div>`;
-                }).join('');
-            }
-
+        // renderInactiveMembers 渲染「未参与成员」区块。
+        // 与榜单拆开：榜单是可展开的完整名单，这块是固定的小清单。
+        function renderInactiveMembers(data) {
             const inactiveContainer = document.getElementById('inactive-container');
             const inactiveDetails = document.getElementById('inactive-details');
-            const inactive = data.inactive_members || [];
+            const inactive = (data && data.inactive_members) || [];
 
             if (inactive.length > 0) {
                 inactiveContainer.style.display = 'block';
@@ -1593,6 +1831,268 @@
             } else {
                 inactiveContainer.style.display = 'none';
             }
+        }
+
+        // renderContributorList 渲染右侧榜单。data 里可能只有前 N 名
+        // （默认请求），也可能是完整榜单（limit=all）；两种状态共用这套渲染。
+        function renderContributorList(data) {
+            const contributors = (data && data.top_contributors) || [];
+            // 总数由服务端单独给出，不受 limit 裁剪影响。缺失时退回已返回的条数，
+            // 这样旧版服务端或异常响应也不会把按钮文案算错。
+            const total = data && data.contributors_total != null
+                ? data.contributors_total
+                : contributors.length;
+
+            const container = document.getElementById('contributors-details');
+            const title = document.getElementById('contributors-title');
+            const toggle = document.getElementById('contributors-toggle');
+
+            if (contributors.length === 0) {
+                container.innerHTML = '<div class="inactive-item">该时间范围内暂无提交</div>';
+                if (title) title.textContent = '🏆 Top 贡献者';
+                if (toggle) toggle.style.display = 'none';
+                return;
+            }
+
+            container.innerHTML = contributors.map(c => {
+                const name = escapeHtml(c.name);
+                const username = c.username ? ` <span style="opacity: 0.6; font-size: 0.85em;">(@${escapeHtml(c.username)})</span>` : '';
+                const label = c.profile_url
+                    ? `<a href="${escapeHtml(c.profile_url)}" target="_blank" rel="noopener">${name}${username}</a>`
+                    : `${name}${username}`;
+                return `
+                    <div class="contributor-item">
+                        <span class="contributor-name">${label}</span>
+                        <div class="contributor-stats">
+                            <span class="commits">📝 ${formatNumber(c.commits)}</span>
+                            <span class="additions">+${formatNumber(c.additions)}</span>
+                            <span class="deletions">-${formatNumber(c.deletions)}</span>
+                        </div>
+                    </div>`;
+            }).join('');
+
+            if (title) {
+                title.textContent = contributorsExpanded ? '🏆 完整贡献者榜单' : '🏆 Top 贡献者';
+            }
+            if (toggle) {
+                // 人数没超过图表条数时不存在「更多」，隐藏切换按钮。
+                if (!contributorsExpanded && total <= CONTRIBUTOR_CHART_N) {
+                    toggle.style.display = 'none';
+                } else {
+                    toggle.style.display = '';
+                    toggle.textContent = contributorsExpanded
+                        ? `收起（共 ${formatNumber(total)} 人）`
+                        : `显示全部（共 ${formatNumber(total)} 人）`;
+                }
+            }
+        }
+
+        // toggleContributors 在「前 N 名」与「完整榜单」之间切换。
+        //
+        // 只重取代码量一份数据：提交频率与 MR 统计不受 limit 影响，跟着重取
+        // 会连带重绘它们、白闪一下。柱状图也不重画——它只画前 N 名，
+        // 两种状态下的数据完全一致。
+        async function toggleContributors() {
+            const seq = ++contributorsSeq;
+            const next = !contributorsExpanded;
+            const params = getParams();
+            const url = `/api/stats/code-volume?days=${params.days}` + (next ? '&limit=all' : '');
+            const toggle = document.getElementById('contributors-toggle');
+
+            if (toggle) {
+                toggle.disabled = true;
+                toggle.textContent = '加载中…';
+            }
+            clearError();
+            try {
+                const resp = await fetch(url);
+                const volume = await readJSON(resp, '代码量统计');
+                if (seq !== contributorsSeq) return; // 已被更晚的点击取代
+                contributorsExpanded = next;
+                payload.volume = volume;
+                renderContributorList(volume);
+            } catch (err) {
+                if (seq !== contributorsSeq) return;
+                showError(`加载完整榜单失败：${err.message}`);
+                if (payload.volume) renderContributorList(payload.volume); // 还原按钮文案
+            } finally {
+                if (seq === contributorsSeq && toggle) toggle.disabled = false;
+            }
+        }
+
+        // ---------- 个人贡献下钻 ----------
+
+        let userCommitChart, userMRChart;
+        let selectedUser = '';
+        let userDetailSeq = 0;
+        let usersLoaded = false;
+
+        // loadUsers 拉取成员列表填充 datalist：既能输入用户名，也能下拉选择。
+        // 非阻断：即使列表没取到，用户仍可手动输入用户名下钻。
+        async function loadUsers() {
+            try {
+                const resp = await fetch('/api/stats/users');
+                if (!resp.ok) return;
+                const users = await resp.json();
+                const dl = document.getElementById('user-options');
+                dl.innerHTML = (users || []).map(u => {
+                    const label = u.username
+                        ? `${escapeHtml(u.name)} (@${escapeHtml(u.username)})`
+                        : escapeHtml(u.name);
+                    return `<option value="${escapeHtml(u.username || u.name)}">${label}</option>`;
+                }).join('');
+            } catch (e) { /* 非阻断 */ }
+        }
+
+        // onUserSelected 选择器变化（输入或下拉）后触发下钻。
+        async function onUserSelected() {
+            const input = document.getElementById('user-select');
+            const val = (input.value || '').trim();
+            if (!val) { clearUserDetail(); return; }
+            selectedUser = val;
+            document.getElementById('user-clear').style.display = '';
+            const seq = ++userDetailSeq;
+            await fetchUserDetail(seq);
+        }
+
+        async function fetchUserDetail(seq) {
+            const params = getParams();
+            const url = `/api/stats/user-detail?user=${encodeURIComponent(selectedUser)}&period=${params.period}&days=${params.days}`;
+            clearError();
+            try {
+                const resp = await fetch(url);
+                const data = await readJSON(resp, '成员详情');
+                if (seq !== userDetailSeq) return; // 已被更晚的点击取代
+                renderUserDetail(data);
+            } catch (err) {
+                if (seq !== userDetailSeq) return;
+                if (err instanceof PendingError) { startPolling(); return; }
+                showError(`加载成员详情失败：${err.message}`);
+                document.getElementById('user-detail').style.display = 'none';
+            }
+        }
+
+        function renderUserDetail(data) {
+            const panel = document.getElementById('user-detail');
+            panel.style.display = 'block';
+
+            const name = data.user && data.user.name ? data.user.name : selectedUser;
+            const username = data.user && data.user.username ? data.user.username : '';
+            document.getElementById('ud-name').textContent = username
+                ? `${name} (@${username})` : name;
+            document.getElementById('ud-range').textContent =
+                (data.period === 'week' ? '按周' : data.period === 'month' ? '按月' : '按日')
+                + ` · 最近 ${data.days} 天`;
+
+            const badge = document.getElementById('ud-badge');
+            if (data.excluded) {
+                badge.style.display = '';
+                badge.textContent = '已排除（自动化账号，不计入统计）';
+            } else if (data.stats_incomplete) {
+                badge.style.display = '';
+                badge.textContent = '部分提交 GitLab 未返回行数，统计数据可能偏低';
+            } else {
+                badge.style.display = 'none';
+            }
+
+            // 汇总卡：被排除时各项为 0，清晰呈现空结果而非假装没有。
+            const t = data.totals || {};
+            const m = data.mr || {};
+            const cards = [
+                ['提交数', formatNumber(t.commits)],
+                ['代码增加', '+' + formatNumber(t.additions)],
+                ['代码删除', '-' + formatNumber(t.deletions)],
+                ['创建 MR', formatNumber(m.created)],
+                ['合并 MR', formatNumber(m.merged)],
+                ['打开 / 关闭 MR', `${formatNumber(m.opened)} / ${formatNumber(m.closed)}`]
+            ];
+            document.getElementById('ud-cards').innerHTML = cards.map(([k, v]) =>
+                `<div class="ud-card"><h4>${k}</h4><div class="v">${v}</div></div>`).join('');
+
+            renderUserCommitChart(data.daily_commit || []);
+            renderUserMRChart(data.daily_mr || []);
+
+            // 每日明细表：最新的在最上面。
+            const rows = (data.daily || []).slice().reverse();
+            document.getElementById('ud-daily').innerHTML = rows.map(d => `
+                <tr>
+                    <td>${escapeHtml(d.date)}</td>
+                    <td>${formatNumber(d.commits)}</td>
+                    <td class="additions">+${formatNumber(d.additions)}</td>
+                    <td class="deletions">-${formatNumber(d.deletions)}</td>
+                    <td>${formatNumber(d.created_mrs)}</td>
+                    <td>${formatNumber(d.merged_mrs)}</td>
+                    <td>${formatNumber(d.opened_mrs)}</td>
+                    <td>${formatNumber(d.closed_mrs)}</td>
+                </tr>`).join('')
+                || '<tr><td colspan="8" style="text-align:center;color:#6b7794;padding:20px;">该范围内暂无活动</td></tr>';
+        }
+
+        function renderUserCommitChart(list) {
+            if (userCommitChart) userCommitChart.destroy();
+            userCommitChart = new Chart(document.getElementById('userCommitChart'), {
+                type: 'line',
+                data: {
+                    labels: list.map(i => i.date),
+                    datasets: [{
+                        label: '提交数',
+                        data: list.map(i => i.count),
+                        borderColor: COLOR_BRAND,
+                        borderWidth: 2,
+                        backgroundColor: (ctx) => {
+                            const { chart } = ctx;
+                            return areaGradient(chart.ctx, chart.chartArea, rgbTriplet(COLOR_BRAND));
+                        },
+                        fill: true,
+                        tension: 0.38,
+                        pointRadius: 0,
+                        pointHoverRadius: 5,
+                        pointBackgroundColor: COLOR_BRAND,
+                        pointBorderColor: COLOR_SURFACE,
+                        pointBorderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: { legend: { display: false } },
+                    scales: { x: baseAxis(true), y: baseAxis(false) }
+                }
+            });
+        }
+
+        function renderUserMRChart(list) {
+            if (userMRChart) userMRChart.destroy();
+            userMRChart = new Chart(document.getElementById('userMRChart'), {
+                type: 'bar',
+                data: {
+                    labels: list.map(i => i.date),
+                    datasets: [{
+                        label: '合并的 MR',
+                        data: list.map(i => i.count),
+                        backgroundColor: `rgba(${rgbTriplet(COLOR_MR_MERGED)}, 0.72)`,
+                        hoverBackgroundColor: COLOR_MR_MERGED,
+                        borderRadius: 4,
+                        borderSkipped: false,
+                        maxBarThickness: 26
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { x: baseAxis(true), y: baseAxis(false) }
+                }
+            });
+        }
+
+        function clearUserDetail() {
+            selectedUser = '';
+            userDetailSeq++; // 让进行中的请求失效
+            document.getElementById('user-select').value = '';
+            document.getElementById('user-clear').style.display = 'none';
+            document.getElementById('user-detail').style.display = 'none';
         }
 
         // 切换周期/范围时不再请求后端，直接用快照数据重绘。

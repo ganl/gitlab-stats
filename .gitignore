@@ -41,3 +41,7 @@ data/
 
 # Local assistant workspace
 .workbuddy/
+
+# Local test / smoke artifacts (synthetic config & snapshot, not source)
+.smoke/
+.gocache/
