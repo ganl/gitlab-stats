@@ -21,7 +21,21 @@ import (
 	"time"
 )
 
-const topContributorLimit = 10
+// 榜单条数的边界。MR 榜与贡献者榜的处理方式刻意不同：
+// 前者只有一根柱状图，条数再多也读不出信息，在聚合阶段就收敛；
+// 后者返回全量，由接口层按 limit 参数决定展示多少（见 parseContributorLimit）。
+const (
+	// mrAuthorLimit 是 MR 榜固定展示的条数。
+	mrAuthorLimit = 10
+
+	// defaultContributorLimit 是贡献者榜的默认条数，保持接口既有行为：
+	// 不传 limit 时前端拿到的仍是前 N 名。
+	defaultContributorLimit = 10
+
+	// maxContributorLimit 是显式指定条数时的上限，避免被构造出超长响应。
+	// 它不约束 limit=all——那个分支返回的是窗口内的真实人数。
+	maxContributorLimit = 2000
+)
 
 func formatKey(t time.Time, period string) string {
 	switch period {
@@ -222,8 +236,8 @@ func BuildMRStatistics(snap *Snapshot, period string, days int, gitlabURL string
 		}
 		return authors[i].Name < authors[j].Name
 	})
-	if len(authors) > topContributorLimit {
-		authors = authors[:topContributorLimit]
+	if len(authors) > mrAuthorLimit {
+		authors = authors[:mrAuthorLimit]
 	}
 	stats.Authors = authors
 
@@ -335,16 +349,24 @@ func BuildCodeVolume(snap *Snapshot, days int, gitlabURL string) CodeVolume {
 			Commits:    agg.commits,
 		})
 	}
+	// 排序键完全确定：提交数降序 → 姓名升序 → 用户名升序。
+	// 完整榜单会一次返回数百条，若排序不稳定，两次请求的同名条目
+	// 可能互换位置，前端展开与刷新时就会看到顺序跳动。
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].Commits != list[j].Commits {
 			return list[i].Commits > list[j].Commits
 		}
-		return list[i].Name < list[j].Name
+		if list[i].Name != list[j].Name {
+			return list[i].Name < list[j].Name
+		}
+		return list[i].Username < list[j].Username
 	})
-	if len(list) > topContributorLimit {
-		list = list[:topContributorLimit]
-	}
+
+	// 这里返回全量榜单，不截断。展示条数是接口层的职责——
+	// 前端既要前 N 名画图，也要能拉到完整名单。在聚合阶段截断，
+	// 「完整榜单」就没有数据来源，ContributorsTotal 也会随之失真。
 	stats.TopContributors = list
+	stats.ContributorsTotal = len(list)
 
 	// 未参与成员检测：遍历用户表并逐条排除不该被点名的身份。
 	//

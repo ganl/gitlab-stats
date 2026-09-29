@@ -337,6 +337,11 @@ type CodeVolume struct {
 	TotalCommits    int              `json:"total_commits"`
 	TopContributors []TopContributor `json:"top_contributors"`
 	InactiveMembers []InactiveMember `json:"inactive_members"`
+
+	// ContributorsTotal 是窗口内的贡献者总数，不受 top_contributors
+	// 的条数限制影响（后者按请求的 limit 裁剪）。
+	// 前端据此显示「显示全部（共 N 人）」，无需为了知道总数而先拉一次全量。
+	ContributorsTotal int `json:"contributors_total"`
 }
 
 type TopContributor struct {

@@ -18,6 +18,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"log"
@@ -316,9 +317,55 @@ func (h *Handler) codeVolumeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	_, days := h.parseQueryParams(r)
 
+	limit, err := parseContributorLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		h.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	stats := BuildCodeVolume(snap, days, h.cfg.GitLabURL)
+	stats.TopContributors = trimContributors(stats.TopContributors, limit)
 	w.Header().Set("X-Snapshot-Time", snap.GeneratedAt.Format(time.RFC3339))
 	writeJSON(w, http.StatusOK, stats)
+}
+
+// parseContributorLimit 解析贡献者榜的条数上限。
+//
+//	缺省      -> defaultContributorLimit，保持接口既有行为
+//	"all"     -> 0，表示不裁剪，返回窗口内的完整榜单
+//	正整数 N  -> min(N, maxContributorLimit)
+//	其它取值  -> 返回错误，由调用方回 400
+//
+// 刻意不接受 0 与负数：limit=0 在不同 API 里含义正好相反（有的表示「不限」，
+// 有的表示「一条都不要」）。与其猜，不如让「全量」有个明确写法 all。
+func parseContributorLimit(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultContributorLimit, nil
+	}
+	if strings.EqualFold(raw, "all") {
+		return 0, nil
+	}
+
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("limit 必须是正整数或 all，收到 %q", raw)
+	}
+	if n > maxContributorLimit {
+		n = maxContributorLimit
+	}
+	return n, nil
+}
+
+// trimContributors 按 limit 裁剪榜单。limit <= 0 表示不裁剪。
+//
+// 只做切片、不复制：榜单在请求内构建，调用方随即序列化写出，
+// 不存在被并发修改的可能。
+func trimContributors(list []TopContributor, limit int) []TopContributor {
+	if limit <= 0 || len(list) <= limit {
+		return list
+	}
+	return list[:limit]
 }
 
 func normalizeString(s string) string {

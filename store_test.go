@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1227,5 +1228,59 @@ func TestWithinWindow_Boundaries(t *testing.T) {
 	}
 	if !withinWindow(today, 1) {
 		t.Error("最近 1 天必须包含今天")
+	}
+}
+
+// TestBuildCodeVolume_ReturnsFullContributorList 聚合层不再按条数截断。
+//
+// 展示条数是接口层的职责：这里截断的话，「显示全部」就没有数据来源，
+// contributors_total 也会跟着失真。
+func TestBuildCodeVolume_ReturnsFullContributorList(t *testing.T) {
+	snap := sampleSnapshot()
+	for i := 1; i <= 12; i++ {
+		snap.Daily = append(snap.Daily, DailyStat{
+			Date:      mkDate(1),
+			AuthorKey: i,
+			Name:      "Dev" + strconv.Itoa(i),
+			Commits:   20 - i,
+			Additions: 10,
+			Deletions: 1,
+		})
+	}
+
+	vol := BuildCodeVolume(snap, 90, "https://git.example.com")
+
+	if len(vol.TopContributors) != 12 {
+		t.Fatalf("应返回完整榜单 12 条，实际 %d 条", len(vol.TopContributors))
+	}
+	if vol.ContributorsTotal != 12 {
+		t.Errorf("contributors_total = %d, want 12", vol.ContributorsTotal)
+	}
+	for i := 1; i < len(vol.TopContributors); i++ {
+		if vol.TopContributors[i-1].Commits < vol.TopContributors[i].Commits {
+			t.Fatalf("榜单应按提交数降序：%+v", vol.TopContributors)
+		}
+	}
+}
+
+// TestBuildCodeVolume_TieBreakByUsername 排序键必须完全确定。
+//
+// 完整榜单一次返回数百条，若同名同提交数的条目顺序会变，
+// 前端展开与刷新时就会看到顺序跳动。
+func TestBuildCodeVolume_TieBreakByUsername(t *testing.T) {
+	snap := sampleSnapshot()
+	snap.Daily = []DailyStat{
+		{Date: mkDate(1), AuthorKey: 1, Name: "Same", Username: "zeta", Commits: 5},
+		{Date: mkDate(1), AuthorKey: 2, Name: "Same", Username: "alpha", Commits: 5},
+	}
+
+	vol := BuildCodeVolume(snap, 90, "https://git.example.com")
+
+	if len(vol.TopContributors) != 2 {
+		t.Fatalf("expected 2 contributors, got %d", len(vol.TopContributors))
+	}
+	// 提交数与姓名都相同时，按用户名升序兜底。
+	if vol.TopContributors[0].Username != "alpha" {
+		t.Errorf("并列时应回退到用户名升序：%+v", vol.TopContributors)
 	}
 }

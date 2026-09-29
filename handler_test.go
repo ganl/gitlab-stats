@@ -266,3 +266,188 @@ func TestWithStaticCache_ServesNotModified(t *testing.T) {
 		t.Errorf("ETag 命中应返回 304，实际 %d", rr.Code)
 	}
 }
+
+// ---------- 贡献者榜单条数（limit 参数） ----------
+
+// TestParseContributorLimit_Defaults 不传 limit 时保持接口既有行为：仍是前 N 名。
+func TestParseContributorLimit_Defaults(t *testing.T) {
+	for _, raw := range []string{"", "   "} {
+		got, err := parseContributorLimit(raw)
+		if err != nil {
+			t.Fatalf("parse %q: unexpected error: %v", raw, err)
+		}
+		if got != defaultContributorLimit {
+			t.Errorf("parse %q: got %d, want %d", raw, got, defaultContributorLimit)
+		}
+	}
+}
+
+// TestParseContributorLimit_All 是「完整榜单」的入口，大小写与空白都要容忍。
+func TestParseContributorLimit_All(t *testing.T) {
+	for _, raw := range []string{"all", "ALL", " all "} {
+		got, err := parseContributorLimit(raw)
+		if err != nil {
+			t.Fatalf("parse %q: unexpected error: %v", raw, err)
+		}
+		if got != 0 {
+			t.Errorf("parse %q: got %d, want 0 (unlimited)", raw, got)
+		}
+	}
+}
+
+func TestParseContributorLimit_ExplicitCount(t *testing.T) {
+	got, err := parseContributorLimit(" 25 ")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != 25 {
+		t.Errorf("got %d, want 25", got)
+	}
+}
+
+// TestParseContributorLimit_ClampsToMax 显式条数超过上限时收敛，避免被构造出超长响应。
+func TestParseContributorLimit_ClampsToMax(t *testing.T) {
+	got, err := parseContributorLimit("99999")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != maxContributorLimit {
+		t.Errorf("got %d, want %d", got, maxContributorLimit)
+	}
+}
+
+// TestParseContributorLimit_RejectsInvalid 0 与负数一律报错。
+// 刻意不接受 0：它在不同 API 里含义正好相反（「不限」/「一条都不要」），
+// 调用方要全量请显式写 all。
+func TestParseContributorLimit_RejectsInvalid(t *testing.T) {
+	for _, raw := range []string{"0", "-3", "abc", "1.5", "10x"} {
+		if _, err := parseContributorLimit(raw); err == nil {
+			t.Errorf("parse %q: expected error, got nil", raw)
+		}
+	}
+}
+
+// TestTrimContributors limit<=0 表示不裁剪；limit 大于长度时也不能出问题。
+func TestTrimContributors(t *testing.T) {
+	list := []TopContributor{{Name: "a"}, {Name: "b"}, {Name: "c"}}
+
+	if got := trimContributors(list, 0); len(got) != 3 {
+		t.Errorf("limit=0 应保留完整列表，实际 %d 条", len(got))
+	}
+	if got := trimContributors(list, 2); len(got) != 2 || got[1].Name != "b" {
+		t.Errorf("limit=2 应保留前两条，实际 %+v", got)
+	}
+	if got := trimContributors(list, 10); len(got) != 3 {
+		t.Errorf("limit 超过列表长度时应原样返回，实际 %d 条", len(got))
+	}
+}
+
+// codeVolumeTestHandler 构造一个带 12 名贡献者的处理器。
+// 12 刚好越过默认的 10 条，能把「截断」与「全量」两种结果区分开。
+func codeVolumeTestHandler(t *testing.T) *Handler {
+	t.Helper()
+
+	store := NewStore(t.TempDir())
+	snap := sampleSnapshot()
+	for i := 1; i <= 12; i++ {
+		snap.Daily = append(snap.Daily, DailyStat{
+			Date:      mkDate(1),
+			AuthorKey: i,
+			Name:      "Dev" + strconv.Itoa(i),
+			Commits:   20 - i,
+			Additions: 10,
+			Deletions: 1,
+		})
+	}
+	if err := store.Save(snap); err != nil {
+		t.Fatalf("save snapshot: %v", err)
+	}
+
+	return &Handler{store: store, jobs: NewJobManager(), cfg: &Config{}}
+}
+
+func decodeCodeVolume(t *testing.T, rr *httptest.ResponseRecorder) CodeVolume {
+	t.Helper()
+
+	var vol CodeVolume
+	if err := json.Unmarshal(rr.Body.Bytes(), &vol); err != nil {
+		t.Fatalf("响应不是合法的 CodeVolume: %v", err)
+	}
+	return vol
+}
+
+// TestCodeVolumeHandler_DefaultIsShortList 默认请求仍只给前 N 名；
+// 同时 contributors_total 要如实报告总数——前端靠它显示「显示全部（共 N 人）」。
+func TestCodeVolumeHandler_DefaultIsShortList(t *testing.T) {
+	handler := codeVolumeTestHandler(t)
+	rr := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/stats/code-volume?days=30", nil)
+
+	handler.codeVolumeHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	vol := decodeCodeVolume(t, rr)
+	if len(vol.TopContributors) != defaultContributorLimit {
+		t.Errorf("默认榜单长度 = %d, want %d",
+			len(vol.TopContributors), defaultContributorLimit)
+	}
+	if vol.ContributorsTotal != 12 {
+		t.Errorf("contributors_total = %d, want 12（不应受 limit 影响）",
+			vol.ContributorsTotal)
+	}
+}
+
+// TestCodeVolumeHandler_LimitAllReturnsFullList limit=all 是「完整榜单」的核心契约。
+func TestCodeVolumeHandler_LimitAllReturnsFullList(t *testing.T) {
+	handler := codeVolumeTestHandler(t)
+	rr := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/stats/code-volume?days=30&limit=all", nil)
+
+	handler.codeVolumeHandler(rr, req)
+
+	vol := decodeCodeVolume(t, rr)
+	if len(vol.TopContributors) != 12 {
+		t.Fatalf("完整榜单长度 = %d, want 12", len(vol.TopContributors))
+	}
+	if vol.TopContributors[0].Commits < vol.TopContributors[11].Commits {
+		t.Errorf("完整榜单仍须按提交数降序：%+v", vol.TopContributors)
+	}
+}
+
+// TestCodeVolumeHandler_LimitNumeric 显式条数要生效。
+func TestCodeVolumeHandler_LimitNumeric(t *testing.T) {
+	handler := codeVolumeTestHandler(t)
+	rr := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/stats/code-volume?days=30&limit=3", nil)
+
+	handler.codeVolumeHandler(rr, req)
+
+	if vol := decodeCodeVolume(t, rr); len(vol.TopContributors) != 3 {
+		t.Errorf("limit=3 返回了 %d 条", len(vol.TopContributors))
+	}
+}
+
+// TestCodeVolumeHandler_InvalidLimitReturns400 非法 limit 必须在边界处拒绝，
+// 不能静默回落到默认值——那样调用方会拿着「以为生效」的条件看错误的数据。
+func TestCodeVolumeHandler_InvalidLimitReturns400(t *testing.T) {
+	handler := codeVolumeTestHandler(t)
+
+	for _, raw := range []string{"0", "-1", "abc"} {
+		rr := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/api/stats/code-volume?days=30&limit="+raw, nil)
+
+		handler.codeVolumeHandler(rr, req)
+
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("limit=%q: expected 400, got %d", raw, rr.Code)
+		}
+		var payload map[string]interface{}
+		if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+			t.Errorf("limit=%q: 响应不是合法 JSON: %v", raw, err)
+		} else if payload["error"] == nil {
+			t.Errorf("limit=%q: 响应缺少 error 字段", raw)
+		}
+	}
+}
