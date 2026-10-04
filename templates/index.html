@@ -1988,6 +1988,10 @@
             if (data.excluded) {
                 badge.style.display = '';
                 badge.textContent = '已排除（自动化账号，不计入统计）';
+            } else if (data.empty) {
+                // 人存在、只是当前时间范围内没有活动：如实标注，而不是报「未找到用户」。
+                badge.style.display = '';
+                badge.textContent = `最近 ${data.days} 天内无活动记录`;
             } else if (data.stats_incomplete) {
                 badge.style.display = '';
                 badge.textContent = '部分提交 GitLab 未返回行数，统计数据可能偏低';
@@ -2000,8 +2004,9 @@
             const m = data.mr || {};
             const cards = [
                 ['提交数', formatNumber(t.commits)],
-                ['代码增加', '+' + formatNumber(t.additions)],
-                ['代码删除', '-' + formatNumber(t.deletions)],
+                // 增删只在非零时带正负号，否则空结果会显示成「-0」这种读不通的数字。
+                ['代码增加', (t.additions > 0 ? '+' : '') + formatNumber(t.additions)],
+                ['代码删除', (t.deletions > 0 ? '-' : '') + formatNumber(t.deletions)],
                 ['创建 MR', formatNumber(m.created)],
                 ['合并 MR', formatNumber(m.merged)],
                 ['打开 / 关闭 MR', `${formatNumber(m.opened)} / ${formatNumber(m.closed)}`]
@@ -2018,8 +2023,8 @@
                 <tr>
                     <td>${escapeHtml(d.date)}</td>
                     <td>${formatNumber(d.commits)}</td>
-                    <td class="additions">+${formatNumber(d.additions)}</td>
-                    <td class="deletions">-${formatNumber(d.deletions)}</td>
+                    <td class="additions">${d.additions > 0 ? '+' : ''}${formatNumber(d.additions)}</td>
+                    <td class="deletions">${d.deletions > 0 ? '-' : ''}${formatNumber(d.deletions)}</td>
                     <td>${formatNumber(d.created_mrs)}</td>
                     <td>${formatNumber(d.merged_mrs)}</td>
                     <td>${formatNumber(d.opened_mrs)}</td>

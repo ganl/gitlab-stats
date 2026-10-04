@@ -431,10 +431,13 @@ func BuildCodeVolume(snap *Snapshot, days int, gitlabURL string) CodeVolume {
 // 不触发任何 GitLab 实时请求。其口径与全局面板完全一致：排除名单、bot、
 // 展示窗口裁剪都沿用同一套逻辑，因此下钻数字与排行/总量自洽。
 type UserDetail struct {
-	User            UserIdentity      `json:"user"`
-	Period          string            `json:"period"`
-	Days            int               `json:"days"`
-	Excluded        bool              `json:"excluded"`
+	User     UserIdentity `json:"user"`
+	Period   string       `json:"period"`
+	Days     int          `json:"days"`
+	Excluded bool         `json:"excluded"`
+	// Empty 表示目标身份确实存在，但当前展示窗口内没有任何活动记录。
+	// 它与「查无此人」是两个不同的结论：前者返回 200 空结果，后者才是 404。
+	Empty           bool              `json:"empty"`
 	StatsIncomplete bool              `json:"stats_incomplete,omitempty"`
 	Totals          ContributorStats  `json:"totals"`
 	MR              UserMRStats       `json:"mr"`
@@ -484,6 +487,39 @@ type DailyDetail struct {
 //
 // 返回的错误只有两种语义：参数缺失（调用方应回 400）、用户确实无任何记录（调用方应回 404）。
 // 被排除的自动化身份不报错，而是返回 Excluded=true 的空结果，让前端明确标注而非假装没有。
+// fillIdentity 用日报里的真实身份信息补齐展示身份，只补全尚缺的字段，
+// 用户表里的稳定信息（username）优先保留。
+func fillIdentity(u *UserIdentity, d *DailyStat, gitlabURL string) {
+	if u.Name == "" && d.Name != "" {
+		u.Name = d.Name
+	}
+	if u.Username == "" && d.Username != "" {
+		u.Username = d.Username
+	}
+	if u.ProfileURL == "" && d.ProfileURL != "" {
+		u.ProfileURL = d.ProfileURL
+	}
+	if u.ProfileURL == "" && u.Username != "" {
+		u.ProfileURL = buildProfileURL(gitlabURL, u.Username)
+	}
+}
+
+// findDailyRecord 在整张日报表里找出第一条属于该身份的记录，**不受展示窗口限制**。
+// 返回 nil 才代表「快照中根本不存在这个身份」；非 nil 说明人存在、只是窗口内恰好没活动，
+// 这两种结论必须分开处理，否则切到「最近 7 天」会把窗口外有贡献的成员整批误判为不存在。
+func findDailyRecord(daily []DailyStat, match func(*DailyStat) bool) *DailyStat {
+	for i := range daily {
+		if match(&daily[i]) {
+			return &daily[i]
+		}
+	}
+	return nil
+}
+
+// BuildUserDetail 汇总单个身份在展示窗口内的贡献：总量、逐日明细与趋势分桶。
+//
+// 身份解析口径与全局面板一致（GitLab ID → 用户名 / 邮箱 → 姓名兜底），
+// 未匹配用户表的身份（镜像仓库作者）回退到日报字面匹配，因此同样可下钻。
 func BuildUserDetail(snap *Snapshot, userQuery, period string, days int, gitlabURL string) (*UserDetail, error) {
 	raw := normalizeString(userQuery)
 	if raw == "" {
@@ -534,19 +570,8 @@ func BuildUserDetail(snap *Snapshot, userQuery, period string, days int, gitlabU
 			continue
 		}
 
-		// 未命中用户表时，逐步用日报里的真实展示信息补齐身份。
-		if detail.User.Name == "" && d.Name != "" {
-			detail.User.Name = d.Name
-		}
-		if detail.User.Username == "" && d.Username != "" {
-			detail.User.Username = d.Username
-		}
-		if detail.User.ProfileURL == "" {
-			detail.User.ProfileURL = d.ProfileURL
-		}
-		if detail.User.ProfileURL == "" && detail.User.Username != "" {
-			detail.User.ProfileURL = buildProfileURL(gitlabURL, detail.User.Username)
-		}
+		// 未命中用户表时，用日报里的真实展示信息补齐身份。
+		fillIdentity(&detail.User, d, gitlabURL)
 
 		detail.Totals.Commits += d.Commits
 		detail.Totals.Additions += d.Additions
@@ -595,8 +620,22 @@ func BuildUserDetail(snap *Snapshot, userQuery, period string, days int, gitlabU
 		detail.Daily = append(detail.Daily, *dailyMap[date])
 	}
 
-	// 既不在用户表、又没有任何日报命中：确实查无此人，交由调用方回 404。
+	// 「查无记录」有三层含义，只有最后一层才该回 404：
+	//  1. 窗口内没活动（窗口裁掉了）—— 把窗口放宽即可看到数据；
+	//  2. 整个快照都没活动（用户表里有此人，比如不承担编码指标的成员）—— 人存在，标空结果；
+	//  3. 用户表与日报表都搜不到 —— 确实查无此人。
+	// 前两类混判会让「最近 7 天」把窗口外有贡献的成员整批误判为不存在（实测 top20 贡献者 100% 命中 404），
+	// 也会让仅选入选择器、却无任何提交记录的成员一选中就报错。
 	if detail.Totals.Commits == 0 && detail.MR.Created == 0 && len(detail.Daily) == 0 {
+		if found {
+			detail.Empty = true
+			return detail, nil
+		}
+		if sample := findDailyRecord(snap.Daily, match); sample != nil {
+			fillIdentity(&detail.User, sample, gitlabURL)
+			detail.Empty = true
+			return detail, nil
+		}
 		return nil, fmt.Errorf("未找到用户 %q 的任何记录", userQuery)
 	}
 
